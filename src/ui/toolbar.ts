@@ -1,4 +1,5 @@
-import type { KeyBindings, ToolsConfig } from '../types'
+import type { KeyBindings, OutputFormat, ToolbarSettingsAdapter, ToolsConfig } from '../types'
+import { OUTPUT_FORMAT_OPTIONS } from '../types'
 import { TOOLBAR_CSS } from './styles'
 
 export type ToolbarMode = 'idle' | 'annotating' | 'frozen'
@@ -23,7 +24,9 @@ const ICONS = {
   clear: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
   minimize: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="7 13 12 18 17 13"/><line x1="12" y1="6" x2="12" y2="18"/></svg>`,
   screenshot: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`,
+  settings: `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06A2 2 0 1 1 4.21 16.96l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06A2 2 0 1 1 7.04 4.21l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`,
   logo: `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/></svg>`,
+  close: `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
 } as const
 
 export class Toolbar {
@@ -42,18 +45,26 @@ export class Toolbar {
   private dragging = false
   private dragOffset = { x: 0, y: 0 }
 
+  private settingsBtn: HTMLButtonElement | null = null
+  private settingsPanel: HTMLDivElement | null = null
+  private settingsOpen = false
+
   private keys: KeyBindings
 
   private readonly tools: ToolsConfig
+
+  private readonly settings: ToolbarSettingsAdapter | null
 
   constructor(
     private readonly position: string,
     private readonly callbacks: ToolbarCallbacks,
     keys?: KeyBindings,
     tools?: ToolsConfig,
+    settings?: ToolbarSettingsAdapter,
   ) {
     this.keys = keys ?? {}
     this.tools = tools ?? {}
+    this.settings = settings ?? null
     this.build()
     this.setupDrag()
   }
@@ -128,6 +139,9 @@ export class Toolbar {
     clearWrap.appendChild(clearBtn)
     clearWrap.appendChild(clearAllBtn)
 
+    this.settingsBtn = this.makeBtn(ICONS.settings, 'Settings', () => this.toggleSettings())
+    this.settingsBtn.classList.add('settings-btn')
+
     const minimizeBtn = this.makeBtn(ICONS.minimize, 'Minimize toolbar', () => {
       this.setMinimized(true)
     })
@@ -144,9 +158,32 @@ export class Toolbar {
     if (this.show('freeze')) add(this.freezeBtn)
     if (this.show('copy')) add(this.copyBtn)
     if (this.show('clear_page') || this.show('clear_all')) add(clearWrap)
+    if (this.show('settings')) add(this.settingsBtn)
     if (this.show('minimize')) add(minimizeBtn)
     this.toolbarEl.append(...toAppend)
     this.shadow.appendChild(this.toolbarEl)
+
+    // Settings panel — populated below; new sections can be appended later.
+    this.settingsPanel = document.createElement('div')
+    this.settingsPanel.className = 'settings-panel'
+    this.settingsPanel.setAttribute('role', 'dialog')
+    this.settingsPanel.setAttribute('aria-label', 'Settings')
+    this.settingsPanel.innerHTML = `
+      <div class="panel-head">
+        <div class="panel-title">Settings</div>
+        <button class="panel-close" aria-label="Close settings">${ICONS.close}</button>
+      </div>
+      <div class="panel-body"></div>
+    `
+    this.settingsPanel.style.display = 'none'
+    this.shadow.appendChild(this.settingsPanel)
+
+    this.settingsPanel.querySelector('.panel-close')?.addEventListener('click', (e) => {
+      e.stopPropagation()
+      this.closeSettings()
+    })
+
+    this.buildSettingsBody()
 
     // Floating action button (minimized state)
     this.fab = document.createElement('button')
@@ -220,7 +257,9 @@ export class Toolbar {
   private setupDrag(): void {
     this.shadow.addEventListener('mousedown', (evt) => {
       const e = evt as MouseEvent
-      if ((e.target as Element).closest('.btn') || (e.target as Element).closest('.fab')) return
+      const target = e.target as Element
+      // Don't start drag from buttons, fab, or inside the settings panel
+      if (target.closest('.btn') || target.closest('.fab') || target.closest('.settings-panel')) return
       this.dragging = true
       const rect = this.host.getBoundingClientRect()
       this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top }
@@ -247,8 +286,119 @@ export class Toolbar {
     this.minimized = min
     this.toolbarEl.style.display = min ? 'none' : ''
     this.fab.style.display = min ? '' : 'none'
+    if (min) this.closeSettings()
     this.updateFabBadge()
     this.callbacks.onMinimize?.(min)
+  }
+
+  // ── Settings panel ────────────────────────────────────────────
+
+  private buildSettingsBody(): void {
+    if (!this.settingsPanel) return
+    const body = this.settingsPanel.querySelector('.panel-body') as HTMLDivElement | null
+    if (!body) return
+
+    // ── Output format ───────────────────────────────────────────
+    const section = document.createElement('div')
+    section.className = 'settings-section'
+    section.innerHTML = `
+      <div class="settings-section-head">
+        <div class="settings-section-title">Output format</div>
+        <div class="settings-section-help">Used when copying annotations as Markdown for AI agents.</div>
+      </div>
+    `
+
+    const grid = document.createElement('div')
+    grid.className = 'format-options'
+
+    const current: OutputFormat = this.settings?.getOutputFormat() ?? 'standard'
+
+    for (const opt of OUTPUT_FORMAT_OPTIONS) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'format-option'
+      btn.dataset.value = opt.id
+      if (opt.id === current) btn.classList.add('active')
+      btn.innerHTML = `
+        <span class="name">${opt.label}</span>
+        <span class="desc">${opt.desc}</span>
+      `
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        this.selectOutputFormat(opt.id)
+      })
+      grid.appendChild(btn)
+    }
+
+    section.appendChild(grid)
+    body.appendChild(section)
+  }
+
+  private selectOutputFormat(fmt: OutputFormat): void {
+    if (!this.settingsPanel) return
+    this.settings?.setOutputFormat(fmt)
+    const options = this.settingsPanel.querySelectorAll<HTMLButtonElement>('.format-option')
+    options.forEach((el) => {
+      el.classList.toggle('active', el.dataset.value === fmt)
+    })
+  }
+
+  private toggleSettings(): void {
+    if (this.settingsOpen) this.closeSettings()
+    else this.openSettings()
+  }
+
+  private openSettings(): void {
+    if (!this.settingsPanel || !this.settingsBtn) return
+    this.settingsOpen = true
+    this.settingsBtn.classList.add('active')
+    this.settingsPanel.style.display = 'block'
+    this.positionSettingsPanel()
+    document.addEventListener('mousedown', this.boundOutsideClick, true)
+  }
+
+  private closeSettings(): void {
+    if (!this.settingsPanel) return
+    this.settingsOpen = false
+    this.settingsBtn?.classList.remove('active')
+    this.settingsPanel.style.display = 'none'
+    document.removeEventListener('mousedown', this.boundOutsideClick, true)
+  }
+
+  private boundOutsideClick = (e: MouseEvent): void => {
+    // Shadow DOM retargets the event to the host when crossing boundaries.
+    // If the click is outside the toolbar host entirely, close the panel.
+    if (!this.host.contains(e.target as Node)) {
+      this.closeSettings()
+    }
+  }
+
+  private positionSettingsPanel(): void {
+    if (!this.settingsPanel || !this.settingsBtn) return
+    // Measure (offscreen) so we know panel size, then place next to toolbar.
+    Object.assign(this.settingsPanel.style, { display: 'block', left: '-9999px', top: '0px' })
+    const panelRect = this.settingsPanel.getBoundingClientRect()
+    const w = panelRect.width
+    const h = panelRect.height
+    const tb = this.toolbarEl.getBoundingClientRect()
+    const anchor = this.settingsBtn.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const pad = 8
+    const gap = 8
+
+    let left: number
+    if (tb.left - gap - w >= pad) {
+      left = tb.left - gap - w
+    } else if (tb.right + gap + w + pad <= vw) {
+      left = tb.right + gap
+    } else {
+      left = Math.max(pad, Math.min(tb.left, vw - w - pad))
+    }
+    let top = anchor.top + anchor.height / 2 - h / 2
+    top = Math.max(pad, Math.min(top, vh - h - pad))
+
+    Object.assign(this.settingsPanel.style, { left: `${left}px`, top: `${top}px` })
   }
 
   private updateFabBadge(): void {
@@ -313,6 +463,7 @@ export class Toolbar {
   }
 
   destroy(): void {
+    document.removeEventListener('mousedown', this.boundOutsideClick, true)
     this.host.remove()
     document.body.classList.remove('ik-annotating')
   }

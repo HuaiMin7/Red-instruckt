@@ -2,6 +2,28 @@ export type AnnotationIntent = 'fix' | 'change' | 'question' | 'approve'
 export type AnnotationSeverity = 'blocking' | 'important' | 'suggestion'
 export type AnnotationStatus = 'pending' | 'resolved' | 'dismissed'
 
+/** Markdown export verbosity. Controls how much context is included. */
+export type OutputFormat = 'compact' | 'standard' | 'detailed' | 'forensic'
+
+export interface OutputFormatOption {
+  id: OutputFormat
+  label: string
+  desc: string
+}
+
+export const OUTPUT_FORMAT_OPTIONS: OutputFormatOption[] = [
+  { id: 'compact',  label: 'Compact',  desc: 'Quick feedback with minimal context.' },
+  { id: 'standard', label: 'Standard', desc: 'Balanced detail — element, source, classes.' },
+  { id: 'detailed', label: 'Detailed', desc: 'Full context with component stack and bbox.' },
+  { id: 'forensic', label: 'Forensic', desc: 'Maximum detail incl. live computed styles.' },
+]
+
+/** Adapter the toolbar uses to read/write user-facing settings. */
+export interface ToolbarSettingsAdapter {
+  getOutputFormat: () => OutputFormat
+  setOutputFormat: (fmt: OutputFormat) => void
+}
+
 export interface SourceFrame {
   filePath: string
   lineNumber: number | null
@@ -85,6 +107,7 @@ export interface ToolsConfig {
   copy?: boolean
   clear_page?: boolean
   clear_all?: boolean
+  settings?: boolean
   minimize?: boolean
 }
 
@@ -107,6 +130,8 @@ export interface InstrucktConfig {
   screenshotPath?: string
   /** Whether MCP tools (get_screenshot, resolve) are available. Default: false */
   mcp?: boolean
+  /** Default output format for clipboard markdown. Default: 'standard' */
+  outputFormat?: OutputFormat
   /** Callbacks */
   onAnnotationAdd?: (annotation: Annotation) => void
   onAnnotationResolve?: (annotation: Annotation) => void

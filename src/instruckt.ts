@@ -1,4 +1,4 @@
-import type { Annotation, InstrucktConfig, PendingAnnotation } from './types'
+import type { Annotation, InstrucktConfig, OutputFormat, PendingAnnotation, ToolbarSettingsAdapter } from './types'
 import { InstrucktApi } from './api'
 import type { AnnotationPayload } from './api'
 import { Toolbar } from './ui/toolbar'
@@ -42,9 +42,33 @@ export class Instruckt {
   private pollTimer: ReturnType<typeof setInterval> | null = null
   private initialLoadDone = false
   private hasBackend = false
+  private outputFormat: OutputFormat = 'standard'
   private boundKeydown: (e: KeyboardEvent) => void
   private boundReposition = (): void => {
     this.markers?.reposition(this.annotations)
+  }
+
+  /** MutationObserver — re-evaluate marker visibility when the page DOM changes
+   *  (e.g. a modal/drawer opens or closes), debounced via rAF. */
+  private mutationObserver: MutationObserver | null = null
+  private mutationRaf: number | null = null
+  private scheduleReposition(): void {
+    if (this.mutationRaf !== null) return
+    this.mutationRaf = requestAnimationFrame(() => {
+      this.mutationRaf = null
+      this.boundReposition()
+    })
+  }
+  private onDomMutation = (records: MutationRecord[]): void => {
+    // Ignore mutations that only happen inside instruckt's own UI to avoid
+    // feedback loops (toolbar, markers, popup, spotlight, etc.).
+    for (const r of records) {
+      const target = r.target as Element | null
+      if (!target || target.nodeType !== 1) continue
+      if (typeof target.closest === 'function' && target.closest('[data-instruckt]')) continue
+      this.scheduleReposition()
+      return
+    }
   }
 
   constructor(config: InstrucktConfig) {
@@ -56,6 +80,7 @@ export class Instruckt {
     }
     this.api = new InstrucktApi(config.endpoint)
     this.boundKeydown = this.onKeydown.bind(this)
+    this.loadSettings()
     this.init()
   }
 
@@ -85,7 +110,7 @@ export class Instruckt {
       onClearPage: () => this.clearPage(),
       onClearAll: () => this.clearEverything(),
       onMinimize: (min) => this.onMinimize(min),
-    }, this.config.keys, this.config.tools)
+    }, this.config.keys, this.config.tools, this.makeSettingsAdapter())
 
     this.highlight = new ElementHighlight()
     this.popup = new AnnotationPopup()
@@ -94,6 +119,19 @@ export class Instruckt {
     document.addEventListener('keydown', this.boundKeydown)
     window.addEventListener('scroll', this.boundReposition, { passive: true })
     window.addEventListener('resize', this.boundReposition, { passive: true })
+
+    // Watch the page DOM for changes (modal/drawer open/close, conditional
+    // rendering, etc.) and re-check whether each marker's target element is
+    // still in DOM. Markers whose target disappears are hidden until it returns.
+    try {
+      this.mutationObserver = new MutationObserver(this.onDomMutation)
+      this.mutationObserver.observe(document.body, {
+        childList: true,
+        subtree: true,
+        attributes: true,
+        attributeFilter: ['style', 'class', 'hidden'],
+      })
+    } catch { /* MutationObserver unavailable — degrade gracefully */ }
 
     // Survive SPA navigation across frameworks
     document.addEventListener('livewire:navigated', () => this.reattach())
@@ -137,7 +175,7 @@ export class Instruckt {
     document.querySelectorAll('[data-instruckt]').forEach(el => el.remove())
 
     // Rebuild everything fresh
-    this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools)
+    this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools, this.makeSettingsAdapter())
     if (wasMinimized) this.toolbar.minimize()
 
     this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
@@ -170,6 +208,41 @@ export class Instruckt {
     } else {
       // Show markers again when restored
       this.markers?.setVisible(true)
+    }
+  }
+
+  // ── Settings (user-facing, persisted) ───────────────────────────
+
+  private static get SETTINGS_KEY() {
+    return `instruckt:${window.location.origin}:settings`
+  }
+
+  private loadSettings(): void {
+    // Default from config, fallback 'standard'
+    this.outputFormat = this.config.outputFormat ?? 'standard'
+    try {
+      const raw = localStorage.getItem(Instruckt.SETTINGS_KEY)
+      if (!raw) return
+      const data = JSON.parse(raw) as { outputFormat?: OutputFormat }
+      if (data?.outputFormat && ['compact', 'standard', 'detailed', 'forensic'].includes(data.outputFormat)) {
+        this.outputFormat = data.outputFormat
+      }
+    } catch { /* storage unavailable */ }
+  }
+
+  private saveSettings(): void {
+    try {
+      localStorage.setItem(Instruckt.SETTINGS_KEY, JSON.stringify({ outputFormat: this.outputFormat }))
+    } catch { /* storage unavailable */ }
+  }
+
+  private makeSettingsAdapter(): ToolbarSettingsAdapter {
+    return {
+      getOutputFormat: () => this.outputFormat,
+      setOutputFormat: (fmt: OutputFormat) => {
+        this.outputFormat = fmt
+        this.saveSettings()
+      },
     }
   }
 
@@ -909,6 +982,7 @@ export class Instruckt {
 
     const multiPage = byPage.size > 1
     const lines: string[] = []
+    const fmt = this.outputFormat
 
     if (multiPage) {
       lines.push(`# UI Feedback`)
@@ -923,61 +997,13 @@ export class Instruckt {
       }
       lines.push('')
 
+      // When grouped by multiple pages, push annotation headings one level deeper
+      // so they nest under the page heading. Agentation's canonical heading is
+      // `## Annotation #N`; we mirror that for single-page exports.
       const hPrefix = multiPage ? '###' : '##'
 
       annotations.forEach((a, i) => {
-        // Feedback-first heading with element context
-        const componentSuffix = a.framework?.component ? ` in \`${a.framework.component}\`` : ''
-        lines.push(`${hPrefix} ${i + 1}. ${a.comment}`)
-        lines.push(`- ID: \`${a.id}\``)
-        lines.push(`- Element: \`${a.element}\`${componentSuffix}`)
-
-        // Source file path (resolved server-side or from framework dev mode)
-        if (a.framework?.source_file) {
-          let loc = a.framework.source_file
-          if (a.framework.source_line) {
-            loc += `:${a.framework.source_line}`
-            if (a.framework.source_column) loc += `:${a.framework.source_column}`
-          }
-          lines.push(`- Source: \`${loc}\``)
-        } else if (a.framework?.data?.file) {
-          lines.push(`- File: \`${a.framework.data.file}\``)
-        }
-
-        // Component stack (from element-source)
-        if (a.framework?.component_stack && a.framework.component_stack.length > 1) {
-          lines.push(`- Component stack:`)
-          for (const frame of a.framework.component_stack) {
-            let frameLoc = frame.filePath
-            if (frame.lineNumber) {
-              frameLoc += `:${frame.lineNumber}`
-              if (frame.columnNumber) frameLoc += `:${frame.columnNumber}`
-            }
-            const name = frame.componentName ? `${frame.componentName} ` : ''
-            lines.push(`  - ${name}\`${frameLoc}\``)
-          }
-        }
-
-        if (a.cssClasses) {
-          lines.push(`- Classes: \`${a.cssClasses}\``)
-        }
-        if (a.selectedText) {
-          lines.push(`- Text: "${a.selectedText}"`)
-        } else if (a.nearbyText) {
-          lines.push(`- Text: "${a.nearbyText.slice(0, 100)}"`)
-        }
-        if (a.screenshot) {
-          if (!a.screenshot.startsWith('data:')) {
-            // Backend-saved file path
-            const screenshotPath = this.config.screenshotPath ?? 'storage/app/_instruckt/'
-            const screenshotInstruction = this.config.mcp ? ` — call \`instruckt.get_screenshot\` with ID \`${a.id}\` to view` : ''
-            lines.push(`- Screenshot: \`${screenshotPath}${a.screenshot}\`${screenshotInstruction}`)
-          } else {
-            // Inline data URI as a markdown image
-            lines.push(`- Screenshot: ![Screenshot](${a.screenshot})`)
-          }
-        }
-        lines.push('')
+        lines.push(...this.renderAnnotation(a, i + 1, hPrefix, fmt))
       })
     }
 
@@ -990,6 +1016,197 @@ export class Instruckt {
     return lines.join('\n').trim()
   }
 
+  /**
+   * Build markdown lines for a single annotation in Agentation-aligned format.
+   *
+   *     ## Annotation #N
+   *     **Element:** button.cta
+   *     **Path:** body > main > .hero-section > button.cta
+   *     **React:** App > Dashboard > Button
+   *     **Source:** src/components/Button.tsx:42
+   *     **Position:** 120px, 480px (200×48px)
+   *     **Feedback:** Button is cut off on mobile viewport
+   *     **Severity:** blocking
+   *
+   * Tiered behaviour follows Agentation's own docs:
+   *   - Compact  — minimal context, omits component tree
+   *   - Standard — balanced; filtered component tree (innermost few)
+   *   - Detailed — full context + bounding box + nearby text + full named tree
+   *   - Forensic — everything incl. id, full stack w/ file paths, and live computed styles
+   */
+  private renderAnnotation(a: Annotation, idx: number, hPrefix: string, fmt: OutputFormat): string[] {
+    const out: string[] = []
+    out.push(`${hPrefix} Annotation #${idx}`)
+    out.push(`**Element:** ${this.elementLabel(a)}`)
+
+    if (fmt !== 'compact') {
+      if (a.elementPath) out.push(`**Path:** ${a.elementPath}`)
+
+      const reactLine = this.componentTreeLine(a, fmt)
+      if (reactLine) out.push(`**${this.componentLabel(a)}:** ${reactLine}`)
+
+      const source = this.sourceLocation(a)
+      if (source) out.push(`**Source:** ${source}`)
+
+      if (a.cssClasses) out.push(`**Classes:** ${a.cssClasses}`)
+    }
+
+    // Position (bounding box) — Detailed / Forensic only, matching Agentation's
+    // "bounding boxes" promise for Detailed+.
+    if (fmt === 'detailed' || fmt === 'forensic') {
+      const pos = this.positionString(a)
+      if (pos) out.push(`**Position:** ${pos}`)
+    }
+
+    // Nearby / selected text — Standard onward, longer slice for Detailed+.
+    if (fmt !== 'compact') {
+      const textLimit = fmt === 'standard' ? 100 : 240
+      const label = a.selectedText ? 'Selected text' : 'Nearby text'
+      const text = a.selectedText ?? a.nearbyText
+      if (text) out.push(`**${label}:** "${text.slice(0, textLimit)}"`)
+    }
+
+    // Feedback — always present.
+    out.push(`**Feedback:** ${a.comment}`)
+
+    // Classification — Severity from Standard onward, Intent from Detailed onward.
+    if (fmt !== 'compact' && a.severity) {
+      out.push(`**Severity:** ${a.severity}`)
+    }
+    if ((fmt === 'detailed' || fmt === 'forensic') && a.intent) {
+      out.push(`**Intent:** ${a.intent}`)
+    }
+
+    // Forensic: ID + full component stack with file paths + computed styles.
+    if (fmt === 'forensic') {
+      out.push(`**ID:** ${a.id}`)
+
+      const stack = a.framework?.component_stack ?? []
+      if (stack.length > 0) {
+        out.push(`**Component stack:**`)
+        for (const frame of stack) {
+          let loc = frame.filePath
+          if (frame.lineNumber) {
+            loc += `:${frame.lineNumber}`
+            if (frame.columnNumber) loc += `:${frame.columnNumber}`
+          }
+          const name = frame.componentName ? `${frame.componentName} ` : ''
+          out.push(`- ${name}\`${loc}\``)
+        }
+      }
+
+      const styles = this.computedStyleSnapshot(a)
+      if (styles && Object.keys(styles).length > 0) {
+        out.push(`**Computed styles:**`)
+        for (const [prop, val] of Object.entries(styles)) {
+          out.push(`- \`${prop}\`: \`${val}\``)
+        }
+      }
+    }
+
+    this.pushScreenshot(out, a)
+    out.push('')
+    return out
+  }
+
+  /** "button.cta" style element label — tag + first useful class. */
+  private elementLabel(a: Annotation): string {
+    const tag = a.element || 'element'
+    const firstClass = (a.cssClasses ?? '').trim().split(/\s+/).filter(Boolean)[0]
+    return firstClass ? `${tag}.${firstClass}` : tag
+  }
+
+  /** Label for the component-tree line — frameworks other than React get their own name. */
+  private componentLabel(a: Annotation): string {
+    switch (a.framework?.framework) {
+      case 'react':  return 'React'
+      case 'vue':    return 'Vue'
+      case 'svelte': return 'Svelte'
+      case 'livewire':
+      case 'blade':  return 'Component'
+      default:       return 'Component'
+    }
+  }
+
+  /**
+   * Component tree summary (e.g. `App > Dashboard > Button`).
+   * Tier behaviour mirrors Agentation:
+   *   - Compact:  null (omit)
+   *   - Standard: last few named frames only ("filtered")
+   *   - Detailed: all named frames ("smart matching")
+   *   - Forensic: all named frames (full stack rendered separately below)
+   */
+  private componentTreeLine(a: Annotation, fmt: OutputFormat): string | null {
+    if (fmt === 'compact') return null
+    const stack = a.framework?.component_stack ?? []
+    const named = stack.map(f => f.componentName).filter((n): n is string => !!n)
+    if (named.length > 0) {
+      const trimmed = fmt === 'standard' ? named.slice(-3) : named
+      return trimmed.join(' > ')
+    }
+    // Fall back to the single component name resolved by the adapter.
+    return a.framework?.component ?? null
+  }
+
+  private sourceLocation(a: Annotation): string | null {
+    const f = a.framework
+    if (f?.source_file) {
+      let loc = f.source_file
+      if (f.source_line) {
+        loc += `:${f.source_line}`
+        if (f.source_column) loc += `:${f.source_column}`
+      }
+      return loc
+    }
+    if (f?.data?.file && typeof f.data.file === 'string') return f.data.file
+    return null
+  }
+
+  private positionString(a: Annotation): string | null {
+    const b = a.boundingBox
+    if (!b) return null
+    if (!b.width && !b.height && !b.x && !b.y) return null
+    return `${Math.round(b.x)}px, ${Math.round(b.y)}px (${Math.round(b.width)}×${Math.round(b.height)}px)`
+  }
+
+  private pushScreenshot(out: string[], a: Annotation): void {
+    if (!a.screenshot) return
+    if (!a.screenshot.startsWith('data:')) {
+      const screenshotPath = this.config.screenshotPath ?? 'storage/app/_instruckt/'
+      const screenshotInstruction = this.config.mcp ? ` — call \`instruckt.get_screenshot\` with ID \`${a.id}\` to view` : ''
+      out.push(`**Screenshot:** \`${screenshotPath}${a.screenshot}\`${screenshotInstruction}`)
+    } else {
+      out.push(`**Screenshot:** ![Screenshot](${a.screenshot})`)
+    }
+  }
+
+  /** Resolve a small, useful set of computed styles for the annotated element. */
+  private computedStyleSnapshot(a: Annotation): Record<string, string> | null {
+    try {
+      const el = a.elementPath ? document.querySelector(a.elementPath) : null
+      if (!(el instanceof HTMLElement)) return null
+      const cs = window.getComputedStyle(el)
+      const props = [
+        'display', 'position', 'box-sizing',
+        'width', 'height',
+        'padding', 'margin',
+        'color', 'background-color',
+        'font-family', 'font-size', 'font-weight', 'line-height',
+        'border', 'border-radius',
+        'opacity', 'z-index',
+        'flex-direction', 'justify-content', 'align-items', 'gap',
+      ]
+      const out: Record<string, string> = {}
+      for (const p of props) {
+        const v = cs.getPropertyValue(p)?.trim()
+        if (v) out[p] = v
+      }
+      return out
+    } catch {
+      return null
+    }
+  }
+
   // ── Public API ────────────────────────────────────────────────
 
   getAnnotations(): Annotation[] { return [...this.annotations] }
@@ -1000,6 +1217,12 @@ export class Instruckt {
     document.removeEventListener('keydown', this.boundKeydown)
     window.removeEventListener('scroll', this.boundReposition)
     window.removeEventListener('resize', this.boundReposition)
+    this.mutationObserver?.disconnect()
+    this.mutationObserver = null
+    if (this.mutationRaf !== null) {
+      cancelAnimationFrame(this.mutationRaf)
+      this.mutationRaf = null
+    }
     this.toolbar?.destroy()
     this.highlight?.destroy()
     this.popup?.destroy()
