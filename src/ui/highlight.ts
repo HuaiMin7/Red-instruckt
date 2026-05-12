@@ -9,6 +9,10 @@ export class ElementHighlight {
       position: 'fixed',
       pointerEvents: 'none', // MUST be none — prevents swallowing clicks
       zIndex: '2147483644',
+      // Render the 2px border *inside* the rect we set via getBoundingClientRect()
+      // so the highlight is pixel-flush with the element instead of overflowing
+      // by 2px on every side.
+      boxSizing: 'border-box',
       border: '2px solid rgba(99,102,241,0.7)',
       background: 'rgba(99,102,241,0.1)',
       borderRadius: '3px',

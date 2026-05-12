@@ -1,8 +1,8 @@
 import { domToPng } from 'modern-screenshot'
 
 /** Filter out instruckt UI elements */
-function nodeFilter(node: HTMLElement): boolean {
-  if (node.getAttribute?.('data-instruckt')) return false
+function nodeFilter(node: Node): boolean {
+  if (node instanceof HTMLElement && node.getAttribute?.('data-instruckt')) return false
   return true
 }
 

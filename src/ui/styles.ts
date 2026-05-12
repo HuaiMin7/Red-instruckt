@@ -193,6 +193,96 @@ export const TOOLBAR_CSS = /* css */ `
   line-height: 1;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
+
+/* Settings panel — anchored next to the toolbar */
+.settings-btn { color: var(--ik-muted); }
+.settings-btn:hover { color: var(--ik-text); }
+.settings-btn.active { background: var(--ik-bg2); color: var(--ik-accent); }
+
+.settings-panel {
+  position: fixed;
+  z-index: 2147483647;
+  width: 320px;
+  background: var(--ik-bg);
+  border: 1px solid var(--ik-border);
+  border-radius: 12px;
+  box-shadow: var(--ik-shadow);
+  padding: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: var(--ik-text);
+  user-select: text;
+  cursor: default;
+}
+.settings-panel .panel-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 8px;
+}
+.settings-panel .panel-title {
+  font-size: 11px; font-weight: 800; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--ik-muted);
+}
+.settings-panel .panel-close {
+  display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px;
+  border: 0; background: transparent;
+  border-radius: 6px;
+  color: var(--ik-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.settings-panel .panel-close:hover { background: var(--ik-bg2); color: var(--ik-text); }
+.settings-panel .panel-body {
+  min-height: 40px;
+  font-size: 13px;
+  color: var(--ik-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-panel .settings-section { display: flex; flex-direction: column; gap: 8px; }
+.settings-panel .settings-section-head { display: flex; flex-direction: column; gap: 2px; }
+.settings-panel .settings-section-title {
+  font-size: 11px; font-weight: 800; letter-spacing: .04em;
+  text-transform: uppercase; color: var(--ik-muted);
+}
+.settings-panel .settings-section-help {
+  font-size: 11px; color: var(--ik-muted); line-height: 1.35;
+}
+
+.settings-panel .format-options {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.settings-panel .format-option {
+  appearance: none;
+  display: flex; flex-direction: column; gap: 2px;
+  border: 1px solid var(--ik-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ik-text);
+  font: inherit;
+  transition: background .12s, border-color .12s, box-shadow .12s;
+}
+.settings-panel .format-option:hover {
+  background: var(--ik-bg2);
+  border-color: color-mix(in srgb, var(--ik-accent) 40%, var(--ik-border));
+}
+.settings-panel .format-option.active {
+  border-color: var(--ik-accent);
+  background: color-mix(in srgb, var(--ik-accent) 10%, transparent);
+  box-shadow: 0 0 0 1px var(--ik-accent) inset;
+}
+.settings-panel .format-option .name {
+  font-size: 12px; font-weight: 700; color: var(--ik-text);
+}
+.settings-panel .format-option .desc {
+  font-size: 11px; color: var(--ik-muted); line-height: 1.3;
+}
 `
 
 /** Popup shadow DOM styles — fully isolated */
@@ -413,10 +503,72 @@ export const MARKER_CSS = /* css */ `
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   pointer-events: all;
   user-select: none;
+  /* left/top are the click point; center the pin on that point */
+  transform: translate(-50%, -50%);
 }
-.ik-marker:hover { transform: scale(1.15); }
+.ik-marker:hover { transform: translate(-50%, -50%) scale(1.15); }
 .ik-marker.has-screenshot { background: var(--ik-marker-screenshot, #22c55e); box-shadow: 0 2px 8px color-mix(in srgb, var(--ik-marker-screenshot, #22c55e) 40%, transparent); }
 .ik-marker.dismissed { background: var(--ik-marker-dismissed, #71717a); box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.ik-marker .ik-marker-edit { display: none; line-height: 0; }
+.ik-marker:hover .ik-marker-index { display: none; }
+.ik-marker:hover .ik-marker-edit { display: block; }
+
+/* Spotlight rectangle showing the annotated region */
+.ik-spotlight {
+  position: absolute;
+  z-index: 2147483644;
+  pointer-events: none;
+  /* Use border-box so width/height match the element's bbox exactly
+     (border is drawn inside, not outside, the rect we position). */
+  box-sizing: border-box;
+  border: 2px solid color-mix(in srgb, var(--ik-marker-default, #6366f1) 80%, #ffffff);
+  background: color-mix(in srgb, var(--ik-marker-default, #6366f1) 16%, transparent);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.15);
+  display: none;
+}
+.ik-spotlight.has-screenshot {
+  border-color: color-mix(in srgb, var(--ik-marker-screenshot, #22c55e) 80%, #ffffff);
+  background: color-mix(in srgb, var(--ik-marker-screenshot, #22c55e) 16%, transparent);
+}
+
+/* Hover preview (comment) */
+.ik-marker-preview {
+  position: absolute;
+  z-index: 2147483646;
+  pointer-events: none;
+  display: none;
+  max-width: min(360px, calc(100vw - 24px));
+  background: #111827;
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px 10px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.22);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 12px;
+  line-height: 1.35;
+}
+.ik-marker-preview .title {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  opacity: .75;
+  margin-bottom: 4px;
+}
+.ik-marker-preview .content {
+  font-weight: 600;
+  word-break: break-word;
+}
+.ik-marker-preview .meta {
+  margin-top: 6px;
+  font-size: 11px;
+  opacity: .75;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 `
 
 /** Inject styles into document.head (idempotent) */
