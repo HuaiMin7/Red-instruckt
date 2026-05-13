@@ -1,4 +1,4 @@
-import type { Annotation, InstrucktConfig, OutputFormat, PendingAnnotation, ToolbarSettingsAdapter } from './types'
+import type { Annotation, InstrucktConfig, MarkerDisplayMode, OutputFormat, PendingAnnotation, ToolbarSettingsAdapter } from './types'
 import { InstrucktApi } from './api'
 import type { AnnotationPayload } from './api'
 import { Toolbar } from './ui/toolbar'
@@ -43,9 +43,20 @@ export class Instruckt {
   private initialLoadDone = false
   private hasBackend = false
   private outputFormat: OutputFormat = 'standard'
+  private markerDisplayMode: MarkerDisplayMode = 'current-page'
   private boundKeydown: (e: KeyboardEvent) => void
+  private repositionRaf: number | null = null
+  /**
+   * Reposition markers/spotlight/preview. Coalesced through rAF because
+   * `scroll` events from nested scroll containers (e.g. an internally
+   * scrollable list or modal body) can fire dozens of times per frame.
+   */
   private boundReposition = (): void => {
-    this.markers?.reposition(this.annotations)
+    if (this.repositionRaf !== null) return
+    this.repositionRaf = requestAnimationFrame(() => {
+      this.repositionRaf = null
+      this.markers?.reposition(this.annotations)
+    })
   }
 
   /** MutationObserver — re-evaluate marker visibility when the page DOM changes
@@ -76,6 +87,7 @@ export class Instruckt {
       adapters: ['livewire', 'vue', 'svelte', 'react', 'blade'],
       theme: 'auto',
       position: 'bottom-right',
+      markerDisplayMode: 'current-page',
       ...config,
     }
     this.api = new InstrucktApi(config.endpoint)
@@ -114,10 +126,17 @@ export class Instruckt {
 
     this.highlight = new ElementHighlight()
     this.popup = new AnnotationPopup()
-    this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
+    this.markers = new AnnotationMarkers(
+      (annotation, ctx) => { this.onMarkerClick(annotation, ctx) },
+      () => this.markerDisplayMode,
+    )
 
     document.addEventListener('keydown', this.boundKeydown)
-    window.addEventListener('scroll', this.boundReposition, { passive: true })
+    // `scroll` does not bubble, but capture-phase listeners receive scroll
+    // events from any scrollable element in the page (e.g. inner lists,
+    // modal bodies, drawers). Using capture here is what makes markers
+    // follow their target element through nested scroll containers.
+    document.addEventListener('scroll', this.boundReposition, { capture: true, passive: true })
     window.addEventListener('resize', this.boundReposition, { passive: true })
 
     // Watch the page DOM for changes (modal/drawer open/close, conditional
@@ -178,7 +197,10 @@ export class Instruckt {
     this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools, this.makeSettingsAdapter())
     if (wasMinimized) this.toolbar.minimize()
 
-    this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
+    this.markers = new AnnotationMarkers(
+      (annotation, ctx) => { this.onMarkerClick(annotation, ctx) },
+      () => this.markerDisplayMode,
+    )
     this.highlight = new ElementHighlight()
 
     if (wasMinimized) this.markers.setVisible(false)
@@ -218,21 +240,27 @@ export class Instruckt {
   }
 
   private loadSettings(): void {
-    // Default from config, fallback 'standard'
     this.outputFormat = this.config.outputFormat ?? 'standard'
+    this.markerDisplayMode = this.config.markerDisplayMode ?? 'current-page'
     try {
       const raw = localStorage.getItem(Instruckt.SETTINGS_KEY)
       if (!raw) return
-      const data = JSON.parse(raw) as { outputFormat?: OutputFormat }
+      const data = JSON.parse(raw) as { outputFormat?: OutputFormat; markerDisplayMode?: MarkerDisplayMode }
       if (data?.outputFormat && ['compact', 'standard', 'detailed', 'forensic'].includes(data.outputFormat)) {
         this.outputFormat = data.outputFormat
+      }
+      if (data?.markerDisplayMode && (data.markerDisplayMode === 'current-page' || data.markerDisplayMode === 'all')) {
+        this.markerDisplayMode = data.markerDisplayMode
       }
     } catch { /* storage unavailable */ }
   }
 
   private saveSettings(): void {
     try {
-      localStorage.setItem(Instruckt.SETTINGS_KEY, JSON.stringify({ outputFormat: this.outputFormat }))
+      localStorage.setItem(
+        Instruckt.SETTINGS_KEY,
+        JSON.stringify({ outputFormat: this.outputFormat, markerDisplayMode: this.markerDisplayMode }),
+      )
     } catch { /* storage unavailable */ }
   }
 
@@ -242,6 +270,12 @@ export class Instruckt {
       setOutputFormat: (fmt: OutputFormat) => {
         this.outputFormat = fmt
         this.saveSettings()
+      },
+      getMarkerDisplayMode: () => this.markerDisplayMode,
+      setMarkerDisplayMode: (mode: MarkerDisplayMode) => {
+        this.markerDisplayMode = mode
+        this.saveSettings()
+        this.boundReposition()
       },
     }
   }
@@ -620,6 +654,12 @@ export class Instruckt {
     this.highlight?.show(target)
     this.highlightLocked = true
 
+    // Remember WHERE inside the target the click landed, as a 0..1 ratio.
+    // This lets the marker stick to the clicked spot when the target moves
+    // inside a nested scroll container or after a layout change.
+    const targetRect = target.getBoundingClientRect()
+    const offset = this.computeTargetOffset(e.clientX, e.clientY, targetRect)
+
     // Resolve framework context async (element-source returns Promises)
     this.detectFramework(target).then(framework => {
       const pending: PendingAnnotation = {
@@ -631,13 +671,46 @@ export class Instruckt {
         boundingBox,
         x: e.clientX,
         y: e.clientY,
+        targetOffsetX: offset.x,
+        targetOffsetY: offset.y,
         selectedText,
         nearbyText,
+        revealHost: this.findRevealHostKey(target),
         framework: framework ?? undefined,
       }
 
       this.showAnnotationPopup(pending)
     })
+  }
+
+  /**
+   * Click position relative to the target as 0..1 ratios. Falls back to
+   * (0.5, 0.5) when the target has no size (very rare — e.g. a hidden
+   * element captured by elementFromPoint just after a frame).
+   */
+  private computeTargetOffset(clientX: number, clientY: number, rect: DOMRect): { x: number; y: number } {
+    if (!rect || rect.width <= 0 || rect.height <= 0) return { x: 0.5, y: 0.5 }
+    const x = (clientX - rect.left) / rect.width
+    const y = (clientY - rect.top) / rect.height
+    // Clamp into the element so a "barely-outside" rounding error doesn't
+    // place future markers slightly off the corner.
+    return {
+      x: Math.min(1, Math.max(0, x)),
+      y: Math.min(1, Math.max(0, y)),
+    }
+  }
+
+  /** Nearest `data-instruckt-host` ancestor — pairs with `[data-instruckt-open="<value>"]` triggers. */
+  private findRevealHostKey(el: Element | null): string | undefined {
+    let n: Element | null = el
+    while (n) {
+      if (n.nodeType === 1) {
+        const v = n.getAttribute('data-instruckt-host')
+        if (v?.trim()) return v.trim()
+      }
+      n = n.parentElement
+    }
+    return undefined
   }
 
   private showAnnotationPopup(pending: PendingAnnotation): void {
@@ -706,6 +779,11 @@ export class Instruckt {
 
     const framework = await this.detectFramework(target)
 
+    // Same idea as the regular click path — store the click point as a
+    // ratio of the target's box so it survives nested-container scrolling.
+    const targetRect = target.getBoundingClientRect()
+    const offset = this.computeTargetOffset(centerX, centerY, targetRect)
+
     const pending: PendingAnnotation = {
       element: target,
       elementPath: getElementSelector(target),
@@ -715,7 +793,10 @@ export class Instruckt {
       boundingBox: getPageBoundingBox(target),
       x: centerX,
       y: centerY,
+      targetOffsetX: offset.x,
+      targetOffsetY: offset.y,
       nearbyText: getNearbyText(target) || undefined,
+      revealHost: this.findRevealHostKey(target),
       screenshot,
       framework: framework ?? undefined,
     }
@@ -815,6 +896,9 @@ export class Instruckt {
     const payload: AnnotationPayload = {
       x: (pending.x / window.innerWidth) * 100,
       y: pending.y + window.scrollY,
+      targetOffsetX: pending.targetOffsetX,
+      targetOffsetY: pending.targetOffsetY,
+      revealHost: pending.revealHost,
       comment,
       element: pending.elementName,
       elementPath: pending.elementPath,
@@ -850,7 +934,15 @@ export class Instruckt {
 
   // ── Marker click — edit or delete ─────────────────────────────
 
-  private onMarkerClick(annotation: Annotation): void {
+  private onMarkerClick(annotation: Annotation, ctx: { ghost: boolean }): void {
+    void this.handleMarkerClick(annotation, ctx)
+  }
+
+  private async handleMarkerClick(annotation: Annotation, ctx: { ghost: boolean }): Promise<void> {
+    if (ctx.ghost && this.markerDisplayMode === 'all') {
+      await this.markers?.revealHiddenTarget(annotation)
+      this.boundReposition()
+    }
     this.popup?.showEdit(annotation, {
       onSave: async (a, newComment) => {
         try {
@@ -1215,13 +1307,17 @@ export class Instruckt {
     this.setAnnotating(false)
     this.setFrozen(false)
     document.removeEventListener('keydown', this.boundKeydown)
-    window.removeEventListener('scroll', this.boundReposition)
+    document.removeEventListener('scroll', this.boundReposition, { capture: true } as EventListenerOptions)
     window.removeEventListener('resize', this.boundReposition)
     this.mutationObserver?.disconnect()
     this.mutationObserver = null
     if (this.mutationRaf !== null) {
       cancelAnimationFrame(this.mutationRaf)
       this.mutationRaf = null
+    }
+    if (this.repositionRaf !== null) {
+      cancelAnimationFrame(this.repositionRaf)
+      this.repositionRaf = null
     }
     this.toolbar?.destroy()
     this.highlight?.destroy()

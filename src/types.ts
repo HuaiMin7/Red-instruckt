@@ -5,6 +5,14 @@ export type AnnotationStatus = 'pending' | 'resolved' | 'dismissed'
 /** Markdown export verbosity. Controls how much context is included. */
 export type OutputFormat = 'compact' | 'standard' | 'detailed' | 'forensic'
 
+/**
+ * Whether markers for targets that are off-screen, clipped by a scroll
+ * container, or inside a closed overlay are shown as "ghost" pins.
+ * `current-page` matches the default: only show markers whose target is
+ * actually visible. `all` shows every marker and supports click-to-reveal.
+ */
+export type MarkerDisplayMode = 'current-page' | 'all'
+
 export interface OutputFormatOption {
   id: OutputFormat
   label: string
@@ -22,6 +30,8 @@ export const OUTPUT_FORMAT_OPTIONS: OutputFormatOption[] = [
 export interface ToolbarSettingsAdapter {
   getOutputFormat: () => OutputFormat
   setOutputFormat: (fmt: OutputFormat) => void
+  getMarkerDisplayMode: () => MarkerDisplayMode
+  setMarkerDisplayMode: (mode: MarkerDisplayMode) => void
 }
 
 export interface SourceFrame {
@@ -61,6 +71,16 @@ export interface Annotation {
   url: string
   x: number
   y: number
+  /**
+   * Click position relative to the target element, expressed as 0..1 ratios
+   * of the target's width/height at click time. Used by the marker
+   * positioner so markers can follow their target through inner-container
+   * scroll, animated layout changes, and element resizes — not just window
+   * scroll. Optional for backwards compatibility with annotations created
+   * before v2.1.
+   */
+  targetOffsetX?: number
+  targetOffsetY?: number
   comment: string
   element: string
   elementPath: string
@@ -77,6 +97,13 @@ export interface Annotation {
   updatedAt?: string
   resolvedAt?: string
   resolvedBy?: 'human' | 'agent'
+  /**
+   * When set, a ghost marker in "All markers" mode can click the element
+   * `[data-instruckt-open="<this value>"]` to re-open the overlay that
+   * hosted the annotation (modal, drawer, etc.). Captured automatically
+   * from the nearest ancestor `[data-instruckt-host]` at annotation time.
+   */
+  revealHost?: string
 }
 
 export interface MarkerColors {
@@ -132,6 +159,8 @@ export interface InstrucktConfig {
   mcp?: boolean
   /** Default output format for clipboard markdown. Default: 'standard' */
   outputFormat?: OutputFormat
+  /** Default marker display mode. Default: 'current-page' */
+  markerDisplayMode?: MarkerDisplayMode
   /** Callbacks */
   onAnnotationAdd?: (annotation: Annotation) => void
   onAnnotationResolve?: (annotation: Annotation) => void
@@ -146,8 +175,13 @@ export interface PendingAnnotation {
   boundingBox: BoundingBox
   x: number
   y: number
+  /** See {@link Annotation.targetOffsetX}. */
+  targetOffsetX?: number
+  targetOffsetY?: number
   selectedText?: string
   nearbyText?: string
   screenshot?: string
   framework?: FrameworkContext
+  /** See {@link Annotation.revealHost}. */
+  revealHost?: string
 }

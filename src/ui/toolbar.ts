@@ -1,4 +1,4 @@
-import type { KeyBindings, OutputFormat, ToolbarSettingsAdapter, ToolsConfig } from '../types'
+import type { KeyBindings, MarkerDisplayMode, OutputFormat, ToolbarSettingsAdapter, ToolsConfig } from '../types'
 import { OUTPUT_FORMAT_OPTIONS } from '../types'
 import { TOOLBAR_CSS } from './styles'
 
@@ -332,14 +332,59 @@ export class Toolbar {
 
     section.appendChild(grid)
     body.appendChild(section)
+
+    // ── Marker display ──────────────────────────────────────────
+    const section2 = document.createElement('div')
+    section2.className = 'settings-section'
+    section2.innerHTML = `
+      <div class="settings-section-head">
+        <div class="settings-section-title">Marker display</div>
+        <div class="settings-section-help">Control whether pins for hidden targets (closed modals, clipped lists) stay visible.</div>
+      </div>
+    `
+    const grid2 = document.createElement('div')
+    grid2.className = 'format-options'
+
+    const currentMode: MarkerDisplayMode = this.settings?.getMarkerDisplayMode() ?? 'current-page'
+    const modes: { id: MarkerDisplayMode; label: string; desc: string }[] = [
+      { id: 'current-page', label: 'Current page', desc: 'Only targets visible now (default).' },
+      { id: 'all', label: 'All markers', desc: 'Show hidden pins; click to reveal.' },
+    ]
+    for (const m of modes) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.className = 'format-option'
+      btn.dataset.markerMode = m.id
+      if (m.id === currentMode) btn.classList.add('active')
+      btn.innerHTML = `
+        <span class="name">${m.label}</span>
+        <span class="desc">${m.desc}</span>
+      `
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation()
+        this.selectMarkerDisplayMode(m.id)
+      })
+      grid2.appendChild(btn)
+    }
+    section2.appendChild(grid2)
+    body.appendChild(section2)
   }
 
   private selectOutputFormat(fmt: OutputFormat): void {
     if (!this.settingsPanel) return
     this.settings?.setOutputFormat(fmt)
-    const options = this.settingsPanel.querySelectorAll<HTMLButtonElement>('.format-option')
+    const options = this.settingsPanel.querySelectorAll<HTMLButtonElement>('.format-option[data-value]')
     options.forEach((el) => {
       el.classList.toggle('active', el.dataset.value === fmt)
+    })
+  }
+
+  private selectMarkerDisplayMode(mode: MarkerDisplayMode): void {
+    if (!this.settingsPanel) return
+    this.settings?.setMarkerDisplayMode(mode)
+    const options = this.settingsPanel.querySelectorAll<HTMLButtonElement>('.format-option[data-marker-mode]')
+    options.forEach((el) => {
+      el.classList.toggle('active', el.dataset.markerMode === mode)
     })
   }
 
