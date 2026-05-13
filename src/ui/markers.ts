@@ -66,16 +66,62 @@ export class AnnotationMarkers {
     return el ? el.getBoundingClientRect() : null
   }
 
+  /**
+   * Does this element have an overflow style that can clip descendants?
+   * `visible` (the default) doesn't clip; everything else does.
+   */
+  private clipsOverflow(el: Element): boolean {
+    if (el === document.documentElement || el === document.body) return false
+    const cs = window.getComputedStyle(el)
+    return cs.overflowX !== 'visible' || cs.overflowY !== 'visible'
+  }
+
+  /**
+   * Return the on-screen rect of `el` after clipping against every ancestor
+   * that has `overflow: hidden/auto/scroll`. Returns `null` when the element
+   * is fully scrolled out of view inside one of those containers (in which
+   * case we want to hide its marker, spotlight, and preview entirely).
+   *
+   * This is what makes markers behave correctly inside a Scrollable List,
+   * a modal body that scrolls, a virtualized table, etc. — not just the
+   * window.
+   */
+  private visibleRectFor(el: Element): DOMRect | null {
+    const rect = el.getBoundingClientRect()
+    if ((rect.width === 0 && rect.height === 0) || Number.isNaN(rect.left)) return null
+    let { left, top, right, bottom } = rect
+    let parent: Element | null = el.parentElement
+    while (parent && parent !== document.documentElement) {
+      if (this.clipsOverflow(parent)) {
+        const pr = parent.getBoundingClientRect()
+        left = Math.max(left, pr.left)
+        top = Math.max(top, pr.top)
+        right = Math.min(right, pr.right)
+        bottom = Math.min(bottom, pr.bottom)
+        if (right <= left || bottom <= top) return null
+      }
+      parent = parent.parentElement
+    }
+    return new DOMRect(left, top, right - left, bottom - top)
+  }
+
   private markerHasScreenshot(annotation: Annotation): boolean {
     return !!annotation.screenshot
   }
 
   private showSpotlightFor(annotation: Annotation): void {
     // Only show the region when the live target element is in DOM and visible.
-    // If the modal/drawer hosting this annotation is closed, do NOT fall back
-    // to stored coordinates — the region no longer exists on screen.
-    const liveRect = this.resolveRect(annotation)
-    if (!liveRect || liveRect.width <= 0 || liveRect.height <= 0) {
+    // If the modal/drawer hosting this annotation is closed, or the target
+    // has scrolled out of view inside a nested scroll container, do NOT
+    // fall back to stored coordinates — the region no longer exists on
+    // screen and a stale spotlight would mislead the user.
+    const target = this.findTarget(annotation)
+    if (!target) {
+      this.hideSpotlight()
+      return
+    }
+    const visible = this.visibleRectFor(target)
+    if (!visible || visible.width <= 0 || visible.height <= 0) {
       this.hideSpotlight()
       return
     }
@@ -84,10 +130,10 @@ export class AnnotationMarkers {
     this.spotlight.className = `ik-spotlight${this.markerHasScreenshot(annotation) ? ' has-screenshot' : ''}`
     Object.assign(this.spotlight.style, {
       display: 'block',
-      left: `${Math.max(0, liveRect.left)}px`,
-      top: `${Math.max(0, liveRect.top)}px`,
-      width: `${liveRect.width}px`,
-      height: `${liveRect.height}px`,
+      left: `${visible.left}px`,
+      top: `${visible.top}px`,
+      width: `${visible.width}px`,
+      height: `${visible.height}px`,
     })
   }
 
@@ -191,11 +237,44 @@ export class AnnotationMarkers {
       el.style.display = 'none'
       return
     }
-    // Show + position at the saved click point (not the element bbox top-left).
-    // annotation.x: % of viewport width; annotation.y: page Y (clientY + scrollY)
+
+    const rect = target.getBoundingClientRect()
+
+    // If the target is scrolled out of view inside an ancestor with
+    // overflow:hidden/auto/scroll (e.g. a Scrollable List), the marker
+    // should hide until the user scrolls it back into view.
+    const visible = this.visibleRectFor(target)
+    if (!visible) {
+      el.style.display = 'none'
+      return
+    }
+
+    // Preferred path: place the marker at the stored click ratio of the
+    // target's current bounding rect. This is what makes the marker stick
+    // to the clicked spot through window scroll, inner-container scroll,
+    // animated layout changes, element resize, etc.
+    let left: number
+    let top: number
+    if (typeof annotation.targetOffsetX === 'number' && typeof annotation.targetOffsetY === 'number') {
+      left = rect.left + annotation.targetOffsetX * rect.width
+      top = rect.top + annotation.targetOffsetY * rect.height
+    } else {
+      // Legacy annotation (created before targetOffsetX/Y existed) — fall
+      // back to the original page-coord placement. This still tracks
+      // window scrolling but won't follow nested scroll perfectly.
+      left = (annotation.x / 100) * window.innerWidth
+      top = annotation.y - window.scrollY
+    }
+
+    // If the click point itself ends up clipped (the target is only
+    // partially visible AND the clicked spot is in the hidden portion),
+    // hide the marker — otherwise it would float over a clipped region.
+    if (left < visible.left || left > visible.right || top < visible.top || top > visible.bottom) {
+      el.style.display = 'none'
+      return
+    }
+
     el.style.display = ''
-    const left = (annotation.x / 100) * window.innerWidth
-    const top = annotation.y - window.scrollY
     el.style.left = `${left}px`
     el.style.top = `${top}px`
   }
@@ -228,6 +307,8 @@ export class AnnotationMarkers {
     })
 
     // If spotlight is visible, keep it aligned with scroll/reflow.
+    // `showSpotlightFor` itself decides to hide when the target is clipped
+    // out by an ancestor scroll container, so we just call it again.
     if (this.spotlight.style.display !== 'none') {
       const visibleId = this.spotlight.getAttribute('data-annotation-id')
       if (visibleId) {
@@ -236,13 +317,20 @@ export class AnnotationMarkers {
       }
     }
 
-    // If preview is visible, keep it inside viewport (re-anchor to its marker).
+    // If a preview tooltip is open and its marker has just been hidden
+    // (e.g. the user scrolled the list so the target moved out of view),
+    // hide the preview too — otherwise it would jump to (0,0) because
+    // the marker has `display:none` and reports a zero rect.
     if (this.preview.style.display !== 'none') {
       const visibleId = this.spotlight.getAttribute('data-annotation-id')
       if (visibleId) {
         const marker = this.markers.get(visibleId)?.el
         const a = annotations.find(x => x.id === visibleId)
-        if (marker && a) this.showPreviewFor(a, marker)
+        if (marker && a && marker.style.display !== 'none') {
+          this.showPreviewFor(a, marker)
+        } else {
+          this.hidePreview()
+        }
       }
     }
   }

@@ -61,6 +61,16 @@ export interface Annotation {
   url: string
   x: number
   y: number
+  /**
+   * Click position relative to the target element, expressed as 0..1 ratios
+   * of the target's width/height at click time. Used by the marker
+   * positioner so markers can follow their target through inner-container
+   * scroll, animated layout changes, and element resizes — not just window
+   * scroll. Optional for backwards compatibility with annotations created
+   * before v2.1.
+   */
+  targetOffsetX?: number
+  targetOffsetY?: number
   comment: string
   element: string
   elementPath: string
@@ -146,6 +156,9 @@ export interface PendingAnnotation {
   boundingBox: BoundingBox
   x: number
   y: number
+  /** See {@link Annotation.targetOffsetX}. */
+  targetOffsetX?: number
+  targetOffsetY?: number
   selectedText?: string
   nearbyText?: string
   screenshot?: string
