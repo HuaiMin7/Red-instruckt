@@ -1,10 +1,15 @@
-import type { Annotation } from '../types'
+import type { Annotation, MarkerDisplayMode } from '../types'
 
-type MarkerClickHandler = (annotation: Annotation) => void
+type MarkerClickHandler = (annotation: Annotation, ctx: { ghost: boolean }) => void
 
 interface MarkerEl {
   el: HTMLElement
   annotationId: string
+}
+
+function escapeAttrSelector(value: string): string {
+  if (typeof CSS !== 'undefined' && typeof CSS.escape === 'function') return CSS.escape(value)
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 /** Manages numbered annotation pins rendered directly on the page */
@@ -21,7 +26,10 @@ export class AnnotationMarkers {
     </svg>
   `
 
-  constructor(private readonly onClick: MarkerClickHandler) {
+  constructor(
+    private readonly onClick: MarkerClickHandler,
+    private readonly getDisplayMode: () => MarkerDisplayMode,
+  ) {
     // Fixed-position container over the page, pointer-events passthrough
     this.container = document.createElement('div')
     Object.assign(this.container.style, {
@@ -60,6 +68,29 @@ export class AnnotationMarkers {
     }
   }
 
+  /**
+   * Try to bring a hidden target back on screen: scroll clipped targets,
+   * or programmatically click a `[data-instruckt-open="<revealHost>"]`
+   * trigger when the target is not in the DOM (e.g. closed modal).
+   */
+  async revealHiddenTarget(annotation: Annotation): Promise<void> {
+    const target = this.findTarget(annotation)
+    if (target instanceof HTMLElement) {
+      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      await new Promise<void>(r => setTimeout(r, 420))
+      return
+    }
+    const key = annotation.revealHost?.trim()
+    if (key) {
+      const sel = `[data-instruckt-open="${escapeAttrSelector(key)}"]`
+      const btn = document.querySelector(sel)
+      if (btn instanceof HTMLElement) {
+        btn.click()
+        await new Promise<void>(r => setTimeout(r, 120))
+      }
+    }
+  }
+
   /** Best-effort: resolve a live DOMRect from stored selector */
   private resolveRect(annotation: Annotation): DOMRect | null {
     const el = this.findTarget(annotation)
@@ -81,10 +112,6 @@ export class AnnotationMarkers {
    * that has `overflow: hidden/auto/scroll`. Returns `null` when the element
    * is fully scrolled out of view inside one of those containers (in which
    * case we want to hide its marker, spotlight, and preview entirely).
-   *
-   * This is what makes markers behave correctly inside a Scrollable List,
-   * a modal body that scrolls, a virtualized table, etc. — not just the
-   * window.
    */
   private visibleRectFor(el: Element): DOMRect | null {
     const rect = el.getBoundingClientRect()
@@ -110,11 +137,6 @@ export class AnnotationMarkers {
   }
 
   private showSpotlightFor(annotation: Annotation): void {
-    // Only show the region when the live target element is in DOM and visible.
-    // If the modal/drawer hosting this annotation is closed, or the target
-    // has scrolled out of view inside a nested scroll container, do NOT
-    // fall back to stored coordinates — the region no longer exists on
-    // screen and a stale spotlight would mislead the user.
     const target = this.findTarget(annotation)
     if (!target) {
       this.hideSpotlight()
@@ -142,23 +164,27 @@ export class AnnotationMarkers {
     this.spotlight.removeAttribute('data-annotation-id')
   }
 
-  private showPreviewFor(annotation: Annotation, anchor: HTMLElement): void {
+  private showPreviewFor(annotation: Annotation, anchor: HTMLElement, opts?: { ghost?: boolean }): void {
     const title = annotation.comment === '(screenshot)' ? 'Screenshot' : 'Note'
     const content = annotation.comment === '(screenshot)' ? 'Screenshot only' : annotation.comment
     const component = annotation.framework?.component ? `in ${annotation.framework.component}` : ''
     const element = annotation.element ? annotation.element : ''
     const meta = [element, component].filter(Boolean).join(' ')
+    const hint = opts?.ghost
+      ? '<div class="ghost-hint">Hidden — click marker to reveal or scroll into view.</div>'
+      : ''
 
     this.preview.innerHTML = `
       <div class="title">${this.esc(title)}</div>
       <div class="content">${this.esc(content).slice(0, 240)}</div>
       ${meta ? `<div class="meta">${this.esc(meta)}</div>` : ''}
+      ${hint}
     `
+
+    this.preview.setAttribute('data-annotation-id', annotation.id)
 
     const rect = anchor.getBoundingClientRect()
     this.preview.style.display = 'block'
-    // Place above or below the marker (prefer below; flip to above if no room).
-    // Horizontally center on the marker, clamp into viewport.
     const vw = window.innerWidth
     const vh = window.innerHeight
     const pad = 10
@@ -181,6 +207,7 @@ export class AnnotationMarkers {
 
   private hidePreview(): void {
     this.preview.style.display = 'none'
+    this.preview.removeAttribute('data-annotation-id')
   }
 
   private esc(s: unknown): string {
@@ -191,12 +218,21 @@ export class AnnotationMarkers {
       .replace(/"/g, '&quot;')
   }
 
+  /** Legacy screen position (viewport coords) used for ghost markers */
+  private legacyMarkerPosition(annotation: Annotation): { left: number; top: number } {
+    return {
+      left: (annotation.x / 100) * window.innerWidth,
+      top: annotation.y - window.scrollY,
+    }
+  }
+
   /** Add or update a marker for an annotation */
   upsert(annotation: Annotation, index: number): void {
     const existing = this.markers.get(annotation.id)
 
     if (existing) {
       this.updateStyle(existing.el, annotation)
+      this.positionMarker(existing.el, annotation)
       return
     }
 
@@ -211,14 +247,19 @@ export class AnnotationMarkers {
 
     el.addEventListener('click', (e) => {
       e.stopPropagation()
-      // On click, also show the marked region so the user can orient quickly
-      this.showSpotlightFor(annotation)
-      this.onClick(annotation)
+      const ghost = el.classList.contains('ik-marker-ghost')
+      if (!ghost) this.showSpotlightFor(annotation)
+      this.onClick(annotation, { ghost })
     })
 
     el.addEventListener('mouseenter', () => {
-      this.showSpotlightFor(annotation)
-      this.showPreviewFor(annotation, el)
+      const ghost = el.classList.contains('ik-marker-ghost')
+      if (ghost) {
+        this.showPreviewFor(annotation, el, { ghost: true })
+      } else {
+        this.showSpotlightFor(annotation)
+        this.showPreviewFor(annotation, el)
+      }
     })
     el.addEventListener('mouseleave', () => {
       this.hideSpotlight()
@@ -230,53 +271,84 @@ export class AnnotationMarkers {
   }
 
   private positionMarker(el: HTMLElement, annotation: Annotation): void {
-    // Hide the marker if its target element is no longer in DOM / not visible
-    // (e.g. the modal or drawer that hosted it has been closed).
+    el.classList.remove('ik-marker-ghost')
+    const mode = this.getDisplayMode()
+    const { left: legL, top: legT } = this.legacyMarkerPosition(annotation)
+
+    const placeGhost = (): void => {
+      el.classList.add('ik-marker-ghost')
+      el.style.display = ''
+      el.style.left = `${legL}px`
+      el.style.top = `${legT}px`
+    }
+
+    const placeNormal = (left: number, top: number): void => {
+      el.classList.remove('ik-marker-ghost')
+      el.style.display = ''
+      el.style.left = `${left}px`
+      el.style.top = `${top}px`
+    }
+
     const target = this.findTarget(annotation)
+
+    if (mode === 'current-page') {
+      if (!target) {
+        el.style.display = 'none'
+        return
+      }
+      const rect = target.getBoundingClientRect()
+      const visible = this.visibleRectFor(target)
+      if (!visible) {
+        el.style.display = 'none'
+        return
+      }
+      let left: number
+      let top: number
+      if (typeof annotation.targetOffsetX === 'number' && typeof annotation.targetOffsetY === 'number') {
+        left = rect.left + annotation.targetOffsetX * rect.width
+        top = rect.top + annotation.targetOffsetY * rect.height
+      } else {
+        left = legL
+        top = legT
+      }
+      if (left < visible.left || left > visible.right || top < visible.top || top > visible.bottom) {
+        el.style.display = 'none'
+        return
+      }
+      placeNormal(left, top)
+      return
+    }
+
+    // mode === 'all'
     if (!target) {
-      el.style.display = 'none'
+      placeGhost()
       return
     }
 
     const rect = target.getBoundingClientRect()
-
-    // If the target is scrolled out of view inside an ancestor with
-    // overflow:hidden/auto/scroll (e.g. a Scrollable List), the marker
-    // should hide until the user scrolls it back into view.
     const visible = this.visibleRectFor(target)
-    if (!visible) {
-      el.style.display = 'none'
-      return
-    }
 
-    // Preferred path: place the marker at the stored click ratio of the
-    // target's current bounding rect. This is what makes the marker stick
-    // to the clicked spot through window scroll, inner-container scroll,
-    // animated layout changes, element resize, etc.
     let left: number
     let top: number
     if (typeof annotation.targetOffsetX === 'number' && typeof annotation.targetOffsetY === 'number') {
       left = rect.left + annotation.targetOffsetX * rect.width
       top = rect.top + annotation.targetOffsetY * rect.height
     } else {
-      // Legacy annotation (created before targetOffsetX/Y existed) — fall
-      // back to the original page-coord placement. This still tracks
-      // window scrolling but won't follow nested scroll perfectly.
-      left = (annotation.x / 100) * window.innerWidth
-      top = annotation.y - window.scrollY
+      left = legL
+      top = legT
     }
 
-    // If the click point itself ends up clipped (the target is only
-    // partially visible AND the clicked spot is in the hidden portion),
-    // hide the marker — otherwise it would float over a clipped region.
-    if (left < visible.left || left > visible.right || top < visible.top || top > visible.bottom) {
-      el.style.display = 'none'
-      return
+    if (
+      visible &&
+      left >= visible.left &&
+      left <= visible.right &&
+      top >= visible.top &&
+      top <= visible.bottom
+    ) {
+      placeNormal(left, top)
+    } else {
+      placeGhost()
     }
-
-    el.style.display = ''
-    el.style.left = `${left}px`
-    el.style.top = `${top}px`
   }
 
   /** Update an existing marker after its annotation status changed */
@@ -284,11 +356,13 @@ export class AnnotationMarkers {
     const marker = this.markers.get(annotation.id)
     if (!marker) return
     this.updateStyle(marker.el, annotation)
+    this.positionMarker(marker.el, annotation)
   }
 
   private updateStyle(el: HTMLElement, annotation: Annotation): void {
     const ssClass = annotation.screenshot ? ' has-screenshot' : ''
-    el.className = `ik-marker ${this.statusClass(annotation.status)}${ssClass}`
+    const ghost = el.classList.contains('ik-marker-ghost')
+    el.className = `ik-marker ${this.statusClass(annotation.status)}${ssClass}${ghost ? ' ik-marker-ghost' : ''}`
     el.title = annotation.comment === '(screenshot)' ? 'Screenshot' : annotation.comment.slice(0, 60)
   }
 
@@ -306,9 +380,6 @@ export class AnnotationMarkers {
       this.positionMarker(marker.el, annotation)
     })
 
-    // If spotlight is visible, keep it aligned with scroll/reflow.
-    // `showSpotlightFor` itself decides to hide when the target is clipped
-    // out by an ancestor scroll container, so we just call it again.
     if (this.spotlight.style.display !== 'none') {
       const visibleId = this.spotlight.getAttribute('data-annotation-id')
       if (visibleId) {
@@ -317,17 +388,14 @@ export class AnnotationMarkers {
       }
     }
 
-    // If a preview tooltip is open and its marker has just been hidden
-    // (e.g. the user scrolled the list so the target moved out of view),
-    // hide the preview too — otherwise it would jump to (0,0) because
-    // the marker has `display:none` and reports a zero rect.
     if (this.preview.style.display !== 'none') {
-      const visibleId = this.spotlight.getAttribute('data-annotation-id')
-      if (visibleId) {
-        const marker = this.markers.get(visibleId)?.el
-        const a = annotations.find(x => x.id === visibleId)
+      const previewId = this.preview.getAttribute('data-annotation-id')
+      if (previewId) {
+        const marker = this.markers.get(previewId)?.el
+        const a = annotations.find(x => x.id === previewId)
         if (marker && a && marker.style.display !== 'none') {
-          this.showPreviewFor(a, marker)
+          const ghost = marker.classList.contains('ik-marker-ghost')
+          this.showPreviewFor(a, marker, ghost ? { ghost: true } : undefined)
         } else {
           this.hidePreview()
         }

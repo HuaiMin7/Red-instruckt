@@ -1,4 +1,4 @@
-import type { Annotation, InstrucktConfig, OutputFormat, PendingAnnotation, ToolbarSettingsAdapter } from './types'
+import type { Annotation, InstrucktConfig, MarkerDisplayMode, OutputFormat, PendingAnnotation, ToolbarSettingsAdapter } from './types'
 import { InstrucktApi } from './api'
 import type { AnnotationPayload } from './api'
 import { Toolbar } from './ui/toolbar'
@@ -43,6 +43,7 @@ export class Instruckt {
   private initialLoadDone = false
   private hasBackend = false
   private outputFormat: OutputFormat = 'standard'
+  private markerDisplayMode: MarkerDisplayMode = 'current-page'
   private boundKeydown: (e: KeyboardEvent) => void
   private repositionRaf: number | null = null
   /**
@@ -86,6 +87,7 @@ export class Instruckt {
       adapters: ['livewire', 'vue', 'svelte', 'react', 'blade'],
       theme: 'auto',
       position: 'bottom-right',
+      markerDisplayMode: 'current-page',
       ...config,
     }
     this.api = new InstrucktApi(config.endpoint)
@@ -124,7 +126,10 @@ export class Instruckt {
 
     this.highlight = new ElementHighlight()
     this.popup = new AnnotationPopup()
-    this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
+    this.markers = new AnnotationMarkers(
+      (annotation, ctx) => { this.onMarkerClick(annotation, ctx) },
+      () => this.markerDisplayMode,
+    )
 
     document.addEventListener('keydown', this.boundKeydown)
     // `scroll` does not bubble, but capture-phase listeners receive scroll
@@ -192,7 +197,10 @@ export class Instruckt {
     this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools, this.makeSettingsAdapter())
     if (wasMinimized) this.toolbar.minimize()
 
-    this.markers = new AnnotationMarkers((annotation) => this.onMarkerClick(annotation))
+    this.markers = new AnnotationMarkers(
+      (annotation, ctx) => { this.onMarkerClick(annotation, ctx) },
+      () => this.markerDisplayMode,
+    )
     this.highlight = new ElementHighlight()
 
     if (wasMinimized) this.markers.setVisible(false)
@@ -232,21 +240,27 @@ export class Instruckt {
   }
 
   private loadSettings(): void {
-    // Default from config, fallback 'standard'
     this.outputFormat = this.config.outputFormat ?? 'standard'
+    this.markerDisplayMode = this.config.markerDisplayMode ?? 'current-page'
     try {
       const raw = localStorage.getItem(Instruckt.SETTINGS_KEY)
       if (!raw) return
-      const data = JSON.parse(raw) as { outputFormat?: OutputFormat }
+      const data = JSON.parse(raw) as { outputFormat?: OutputFormat; markerDisplayMode?: MarkerDisplayMode }
       if (data?.outputFormat && ['compact', 'standard', 'detailed', 'forensic'].includes(data.outputFormat)) {
         this.outputFormat = data.outputFormat
+      }
+      if (data?.markerDisplayMode && (data.markerDisplayMode === 'current-page' || data.markerDisplayMode === 'all')) {
+        this.markerDisplayMode = data.markerDisplayMode
       }
     } catch { /* storage unavailable */ }
   }
 
   private saveSettings(): void {
     try {
-      localStorage.setItem(Instruckt.SETTINGS_KEY, JSON.stringify({ outputFormat: this.outputFormat }))
+      localStorage.setItem(
+        Instruckt.SETTINGS_KEY,
+        JSON.stringify({ outputFormat: this.outputFormat, markerDisplayMode: this.markerDisplayMode }),
+      )
     } catch { /* storage unavailable */ }
   }
 
@@ -256,6 +270,12 @@ export class Instruckt {
       setOutputFormat: (fmt: OutputFormat) => {
         this.outputFormat = fmt
         this.saveSettings()
+      },
+      getMarkerDisplayMode: () => this.markerDisplayMode,
+      setMarkerDisplayMode: (mode: MarkerDisplayMode) => {
+        this.markerDisplayMode = mode
+        this.saveSettings()
+        this.boundReposition()
       },
     }
   }
@@ -655,6 +675,7 @@ export class Instruckt {
         targetOffsetY: offset.y,
         selectedText,
         nearbyText,
+        revealHost: this.findRevealHostKey(target),
         framework: framework ?? undefined,
       }
 
@@ -677,6 +698,19 @@ export class Instruckt {
       x: Math.min(1, Math.max(0, x)),
       y: Math.min(1, Math.max(0, y)),
     }
+  }
+
+  /** Nearest `data-instruckt-host` ancestor — pairs with `[data-instruckt-open="<value>"]` triggers. */
+  private findRevealHostKey(el: Element | null): string | undefined {
+    let n: Element | null = el
+    while (n) {
+      if (n.nodeType === 1) {
+        const v = n.getAttribute('data-instruckt-host')
+        if (v?.trim()) return v.trim()
+      }
+      n = n.parentElement
+    }
+    return undefined
   }
 
   private showAnnotationPopup(pending: PendingAnnotation): void {
@@ -762,6 +796,7 @@ export class Instruckt {
       targetOffsetX: offset.x,
       targetOffsetY: offset.y,
       nearbyText: getNearbyText(target) || undefined,
+      revealHost: this.findRevealHostKey(target),
       screenshot,
       framework: framework ?? undefined,
     }
@@ -863,6 +898,7 @@ export class Instruckt {
       y: pending.y + window.scrollY,
       targetOffsetX: pending.targetOffsetX,
       targetOffsetY: pending.targetOffsetY,
+      revealHost: pending.revealHost,
       comment,
       element: pending.elementName,
       elementPath: pending.elementPath,
@@ -898,7 +934,15 @@ export class Instruckt {
 
   // ── Marker click — edit or delete ─────────────────────────────
 
-  private onMarkerClick(annotation: Annotation): void {
+  private onMarkerClick(annotation: Annotation, ctx: { ghost: boolean }): void {
+    void this.handleMarkerClick(annotation, ctx)
+  }
+
+  private async handleMarkerClick(annotation: Annotation, ctx: { ghost: boolean }): Promise<void> {
+    if (ctx.ghost && this.markerDisplayMode === 'all') {
+      await this.markers?.revealHiddenTarget(annotation)
+      this.boundReposition()
+    }
     this.popup?.showEdit(annotation, {
       onSave: async (a, newComment) => {
         try {

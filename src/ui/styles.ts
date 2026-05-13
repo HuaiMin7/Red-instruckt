@@ -509,6 +509,17 @@ export const MARKER_CSS = /* css */ `
 .ik-marker:hover { transform: translate(-50%, -50%) scale(1.15); }
 .ik-marker.has-screenshot { background: var(--ik-marker-screenshot, #22c55e); box-shadow: 0 2px 8px color-mix(in srgb, var(--ik-marker-screenshot, #22c55e) 40%, transparent); }
 .ik-marker.dismissed { background: var(--ik-marker-dismissed, #71717a); box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+/* Ghost pin — target is off-screen, in a closed overlay, or clipped; click to reveal */
+.ik-marker.ik-marker-ghost {
+  opacity: 0.55;
+  background: color-mix(in srgb, var(--ik-marker-default, #6366f1) 70%, #ffffff);
+  border: 2px dashed color-mix(in srgb, var(--ik-marker-default, #6366f1) 55%, #ffffff);
+  box-shadow: none;
+}
+.ik-marker.ik-marker-ghost.has-screenshot {
+  background: color-mix(in srgb, var(--ik-marker-screenshot, #22c55e) 70%, #ffffff);
+  border-color: color-mix(in srgb, var(--ik-marker-screenshot, #22c55e) 55%, #ffffff);
+}
 .ik-marker .ik-marker-edit { display: none; line-height: 0; }
 .ik-marker:hover .ik-marker-index { display: none; }
 .ik-marker:hover .ik-marker-edit { display: block; }
@@ -568,6 +579,15 @@ export const MARKER_CSS = /* css */ `
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.ik-marker-preview .ghost-hint {
+  margin-top: 8px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: #fcd34d;
+  line-height: 1.3;
 }
 `
 
