@@ -1,4 +1,5 @@
 import { domToPng } from 'modern-screenshot'
+import { getInstrucktAccentRgbComma } from './styles'
 
 /** Filter out instruckt UI elements */
 function nodeFilter(node: Node): boolean {
@@ -144,11 +145,12 @@ export function selectRegion(): Promise<DOMRect | null> {
     })
     overlay.setAttribute('data-instruckt', 'region-select')
 
+    const rgb = getInstrucktAccentRgbComma()
     const box = document.createElement('div')
     Object.assign(box.style, {
       position: 'fixed',
-      border: '2px dashed #6366f1',
-      background: 'rgba(99,102,241,0.08)',
+      border: `2px dashed rgba(${rgb},0.85)`,
+      background: `rgba(${rgb},0.08)`,
       borderRadius: '4px',
       display: 'none',
       pointerEvents: 'none',

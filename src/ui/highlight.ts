@@ -1,3 +1,5 @@
+import { getInstrucktAccentRgbComma } from './styles'
+
 /** Hover highlight overlay — uses all inline styles, no CSS class needed */
 export class ElementHighlight {
   private el: HTMLElement
@@ -25,6 +27,11 @@ export class ElementHighlight {
   }
 
   show(el: Element): void {
+    const rgb = getInstrucktAccentRgbComma()
+    Object.assign(this.el.style, {
+      border: `2px solid rgba(${rgb},0.55)`,
+      background: `rgba(${rgb},0.1)`,
+    })
     const rect = el.getBoundingClientRect()
     if (rect.width === 0 && rect.height === 0) {
       this.hide()

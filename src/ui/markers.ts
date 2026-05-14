@@ -1,6 +1,6 @@
-import type { Annotation, MarkerDisplayMode } from '../types'
+import type { Annotation, MarkerVisibility } from '../types'
 
-type MarkerClickHandler = (annotation: Annotation, ctx: { ghost: boolean }) => void
+type MarkerClickHandler = (annotation: Annotation, ctx: { ghost: boolean; anchorEl: HTMLElement }) => void
 
 interface MarkerEl {
   el: HTMLElement
@@ -18,6 +18,8 @@ export class AnnotationMarkers {
   private markers: Map<string, MarkerEl> = new Map()
   private spotlight: HTMLDivElement
   private preview: HTMLDivElement
+  /** While the edit panel is open, keep the marked region visible even after pointer leaves the pin. */
+  private spotlightPinnedAnnotation: Annotation | null = null
 
   private static readonly EDIT_ICON = `
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -28,7 +30,7 @@ export class AnnotationMarkers {
 
   constructor(
     private readonly onClick: MarkerClickHandler,
-    private readonly getDisplayMode: () => MarkerDisplayMode,
+    private readonly getMarkerVisibility: () => MarkerVisibility,
   ) {
     // Fixed-position container over the page, pointer-events passthrough
     this.container = document.createElement('div')
@@ -164,6 +166,19 @@ export class AnnotationMarkers {
     this.spotlight.removeAttribute('data-annotation-id')
   }
 
+  /** Call after opening the edit popup so moving the cursor into the panel does not clear the highlight. */
+  pinSpotlightForEdit(annotation: Annotation): void {
+    this.spotlightPinnedAnnotation = annotation
+    this.hidePreview()
+    this.showSpotlightFor(annotation)
+  }
+
+  /** Call when the edit popup closes. */
+  unpinSpotlightForEdit(): void {
+    this.spotlightPinnedAnnotation = null
+    this.hideSpotlight()
+  }
+
   private showPreviewFor(annotation: Annotation, anchor: HTMLElement, opts?: { ghost?: boolean }): void {
     const title = annotation.comment === '(screenshot)' ? 'Screenshot' : 'Note'
     const content = annotation.comment === '(screenshot)' ? 'Screenshot only' : annotation.comment
@@ -248,21 +263,28 @@ export class AnnotationMarkers {
     el.addEventListener('click', (e) => {
       e.stopPropagation()
       const ghost = el.classList.contains('ik-marker-ghost')
-      if (!ghost) this.showSpotlightFor(annotation)
-      this.onClick(annotation, { ghost })
+      this.onClick(annotation, { ghost, anchorEl: el })
     })
 
     el.addEventListener('mouseenter', () => {
+      const editOpen = this.spotlightPinnedAnnotation !== null
       const ghost = el.classList.contains('ik-marker-ghost')
       if (ghost) {
-        this.showPreviewFor(annotation, el, { ghost: true })
+        if (!editOpen) this.showPreviewFor(annotation, el, { ghost: true })
       } else {
         this.showSpotlightFor(annotation)
-        this.showPreviewFor(annotation, el)
+        if (!editOpen) this.showPreviewFor(annotation, el)
       }
     })
     el.addEventListener('mouseleave', () => {
-      this.hideSpotlight()
+      const pin = this.spotlightPinnedAnnotation
+      if (pin) {
+        if (pin.id !== annotation.id) {
+          this.showSpotlightFor(pin)
+        }
+      } else {
+        this.hideSpotlight()
+      }
       this.hidePreview()
     })
 
@@ -272,7 +294,7 @@ export class AnnotationMarkers {
 
   private positionMarker(el: HTMLElement, annotation: Annotation): void {
     el.classList.remove('ik-marker-ghost')
-    const mode = this.getDisplayMode()
+    const { showCurrentPageMarkers: showPage, showAllMarkers: showGhosts } = this.getMarkerVisibility()
     const { left: legL, top: legT } = this.legacyMarkerPosition(annotation)
 
     const placeGhost = (): void => {
@@ -289,9 +311,15 @@ export class AnnotationMarkers {
       el.style.top = `${top}px`
     }
 
+    if (!showPage && !showGhosts) {
+      el.style.display = 'none'
+      return
+    }
+
     const target = this.findTarget(annotation)
 
-    if (mode === 'current-page') {
+    // ── Current page only: same as legacy `current-page` mode ─────────
+    if (showPage && !showGhosts) {
       if (!target) {
         el.style.display = 'none'
         return
@@ -319,7 +347,40 @@ export class AnnotationMarkers {
       return
     }
 
-    // mode === 'all'
+    // ── Ghosts only: never show solid in-view pins ─────────────────────
+    if (!showPage && showGhosts) {
+      if (!target) {
+        placeGhost()
+        return
+      }
+      const rect = target.getBoundingClientRect()
+      const visible = this.visibleRectFor(target)
+
+      let left: number
+      let top: number
+      if (typeof annotation.targetOffsetX === 'number' && typeof annotation.targetOffsetY === 'number') {
+        left = rect.left + annotation.targetOffsetX * rect.width
+        top = rect.top + annotation.targetOffsetY * rect.height
+      } else {
+        left = legL
+        top = legT
+      }
+
+      if (
+        visible &&
+        left >= visible.left &&
+        left <= visible.right &&
+        top >= visible.top &&
+        top <= visible.bottom
+      ) {
+        el.style.display = 'none'
+        return
+      }
+      placeGhost()
+      return
+    }
+
+    // showPage && showGhosts — same as legacy `all` mode ───────────────
     if (!target) {
       placeGhost()
       return
@@ -374,6 +435,12 @@ export class AnnotationMarkers {
 
   /** Reposition all markers (e.g. after scroll or resize) */
   reposition(annotations: Annotation[]): void {
+    if (this.spotlightPinnedAnnotation) {
+      const fresh = annotations.find(a => a.id === this.spotlightPinnedAnnotation!.id)
+      if (fresh) this.spotlightPinnedAnnotation = fresh
+      else this.spotlightPinnedAnnotation = null
+    }
+
     annotations.forEach(annotation => {
       const marker = this.markers.get(annotation.id)
       if (!marker) return
@@ -388,7 +455,7 @@ export class AnnotationMarkers {
       }
     }
 
-    if (this.preview.style.display !== 'none') {
+    if (this.preview.style.display !== 'none' && !this.spotlightPinnedAnnotation) {
       const previewId = this.preview.getAttribute('data-annotation-id')
       if (previewId) {
         const marker = this.markers.get(previewId)?.el
@@ -408,13 +475,21 @@ export class AnnotationMarkers {
     if (!marker) return
     marker.el.remove()
     this.markers.delete(annotationId)
+    if (this.spotlightPinnedAnnotation?.id === annotationId) {
+      this.spotlightPinnedAnnotation = null
+      this.hideSpotlight()
+      this.hidePreview()
+    }
   }
 
   /** Show or hide all markers */
   setVisible(visible: boolean): void {
     this.container.style.display = visible ? '' : 'none'
-    if (!visible) this.hideSpotlight()
-    if (!visible) this.hidePreview()
+    if (!visible) {
+      this.spotlightPinnedAnnotation = null
+      this.hideSpotlight()
+      this.hidePreview()
+    }
   }
 
   /** Remove all markers without destroying the container */
@@ -423,11 +498,13 @@ export class AnnotationMarkers {
       el.remove()
     }
     this.markers.clear()
+    this.spotlightPinnedAnnotation = null
     this.hideSpotlight()
     this.hidePreview()
   }
 
   destroy(): void {
+    this.spotlightPinnedAnnotation = null
     this.container.remove()
     this.markers.clear()
   }
