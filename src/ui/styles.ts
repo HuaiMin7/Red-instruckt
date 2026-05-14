@@ -25,8 +25,8 @@ export const TOOLBAR_CSS = /* css */ `
 }
 
 :host {
-  --ik-accent: #6366f1;
-  --ik-accent-h: #4f46e5;
+  --ik-accent: var(--instruckt-accent, #6366f1);
+  --ik-accent-h: var(--instruckt-accent-hover, #4f46e5);
   --ik-bg: #ffffff;
   --ik-bg2: #f4f4f5;
   --ik-border: #e4e4e7;
@@ -184,7 +184,7 @@ export const TOOLBAR_CSS = /* css */ `
   position: absolute;
   top: -4px; right: -4px;
   min-width: 16px; height: 16px;
-  background: #6366f1;
+  background: var(--ik-accent);
   color: #fff;
   border-radius: 8px;
   font-size: 9px; font-weight: 700;
@@ -194,94 +194,378 @@ export const TOOLBAR_CSS = /* css */ `
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
-/* Settings panel — anchored next to the toolbar */
+/* Settings panel — Figma tokens (node 1:4) + dark fallbacks */
 .settings-btn { color: var(--ik-muted); }
 .settings-btn:hover { color: var(--ik-text); }
 .settings-btn.active { background: var(--ik-bg2); color: var(--ik-accent); }
 
 .settings-panel {
+  --sp-brand: #ff2442;
+  --sp-text-paragraph: #000000b2;
+  --sp-text-title: #000000d9;
+  --sp-text-placeholder: #0000006b;
+  --sp-line-divider: #00000014;
+  --sp-checkbox-active: #3077f1;
+  --sp-checkbox-stroke: #0000001a;
   position: fixed;
   z-index: 2147483647;
   width: 320px;
+  overflow: visible;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 11px;
   background: var(--ik-bg);
   border: 1px solid var(--ik-border);
-  border-radius: 12px;
+  border-radius: 16px;
   box-shadow: var(--ik-shadow);
-  padding: 12px;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  padding: 16px;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Segoe UI', sans-serif;
   color: var(--ik-text);
   user-select: text;
   cursor: default;
 }
-.settings-panel .panel-head {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 8px;
+
+:host-context([data-instruckt-theme="dark"]) .settings-panel {
+  --sp-text-paragraph: color-mix(in srgb, var(--ik-text) 70%, transparent);
+  --sp-text-title: color-mix(in srgb, var(--ik-text) 85%, transparent);
+  --sp-text-placeholder: color-mix(in srgb, var(--ik-text) 42%, transparent);
+  --sp-line-divider: color-mix(in srgb, var(--ik-text) 8%, transparent);
+  --sp-checkbox-stroke: color-mix(in srgb, var(--ik-text) 10%, transparent);
 }
-.settings-panel .panel-title {
-  font-size: 11px; font-weight: 800; letter-spacing: .06em;
-  text-transform: uppercase; color: var(--ik-muted);
+@media (prefers-color-scheme: dark) {
+  :host-context(html:not([data-instruckt-theme="light"])) .settings-panel {
+    --sp-text-paragraph: color-mix(in srgb, var(--ik-text) 70%, transparent);
+    --sp-text-title: color-mix(in srgb, var(--ik-text) 85%, transparent);
+    --sp-text-placeholder: color-mix(in srgb, var(--ik-text) 42%, transparent);
+    --sp-line-divider: color-mix(in srgb, var(--ik-text) 8%, transparent);
+    --sp-checkbox-stroke: color-mix(in srgb, var(--ik-text) 10%, transparent);
+  }
+}
+
+.settings-panel .panel-head-figma {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  flex-shrink: 0;
+}
+.settings-panel .panel-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.settings-panel .panel-brand {
+  display: flex;
+  align-items: center;
+  line-height: 0;
+  min-width: 0;
+  flex: 0 1 auto;
+  max-width: calc(100% - 120px);
+}
+.settings-panel .panel-brand svg {
+  display: block;
+  height: 11px;
+  width: auto;
+  max-width: 100%;
+}
+.settings-panel .panel-version {
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 20px;
+  color: var(--sp-text-placeholder);
+  flex-shrink: 0;
+}
+.settings-panel .panel-divider,
+.settings-panel .settings-list-divider {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 8px 0;
+  height: auto;
+  background: transparent;
+  border: 0;
+  box-sizing: border-box;
+}
+.settings-panel .panel-divider::after,
+.settings-panel .settings-list-divider::after {
+  content: '';
+  display: block;
+  height: 1px;
+  width: 100%;
+  background: var(--sp-line-divider);
 }
 .settings-panel .panel-close {
   display: flex; align-items: center; justify-content: center;
   width: 24px; height: 24px;
   border: 0; background: transparent;
-  border-radius: 6px;
+  border-radius: 4px;
   color: var(--ik-muted);
   cursor: pointer;
   padding: 0;
+  flex-shrink: 0;
 }
 .settings-panel .panel-close:hover { background: var(--ik-bg2); color: var(--ik-text); }
 .settings-panel .panel-body {
-  min-height: 40px;
-  font-size: 13px;
-  color: var(--ik-muted);
+  min-height: 0;
+  font-size: 14px;
+  line-height: 22px;
+  font-weight: 400;
+  color: var(--sp-text-paragraph);
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
+  overflow: visible;
 }
 
 .settings-panel .settings-section { display: flex; flex-direction: column; gap: 8px; }
-.settings-panel .settings-section-head { display: flex; flex-direction: column; gap: 2px; }
-.settings-panel .settings-section-title {
-  font-size: 11px; font-weight: 800; letter-spacing: .04em;
-  text-transform: uppercase; color: var(--ik-muted);
-}
-.settings-panel .settings-section-help {
-  font-size: 11px; color: var(--ik-muted); line-height: 1.35;
-}
+.settings-panel .settings-section-head { display: none; }
 
-.settings-panel .format-options {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
+.settings-panel .settings-row.settings-pick-row,
+.settings-panel .settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  min-height: 32px;
+  padding: 5px 0;
+  border-radius: 4px;
 }
-.settings-panel .format-option {
-  appearance: none;
-  display: flex; flex-direction: column; gap: 2px;
+.settings-panel .settings-label-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.settings-panel .settings-row-title {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: var(--sp-text-paragraph);
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+.settings-panel .settings-help-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+.settings-panel .settings-help-wrap.is-help-open {
+  z-index: 50;
+  isolation: isolate;
+}
+.settings-panel .settings-help-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ik-text);
+  cursor: help;
+  flex-shrink: 0;
+}
+.settings-panel .settings-help-btn:hover {
+  background: color-mix(in srgb, var(--ik-text) 6%, transparent);
+  color: var(--ik-text);
+}
+.settings-panel .settings-help-btn svg {
+  display: block;
+  opacity: 0.45;
+}
+.settings-panel .settings-help-btn:hover svg {
+  opacity: 0.65;
+}
+.settings-panel .settings-help-popover {
+  position: absolute;
+  left: 0;
+  right: auto;
+  top: auto;
+  bottom: calc(100% + 6px);
+  z-index: 2;
+  width: min(300px, calc(100vw - 48px));
+  max-width: 300px;
+  max-height: min(280px, 40vh);
+  overflow-y: auto;
+  padding: 10px 12px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: pre-wrap;
+  color: var(--ik-text);
+  background: var(--ik-bg);
   border: 1px solid var(--ik-border);
   border-radius: 8px;
-  padding: 8px 10px;
+  box-shadow: var(--ik-shadow);
+  pointer-events: none;
+  visibility: hidden;
+  opacity: 0;
+  transition: opacity .12s ease, visibility .12s ease;
+}
+.settings-panel .settings-help-wrap.is-help-open .settings-help-popover {
+  visibility: visible;
+  opacity: 1;
+  pointer-events: auto;
+}
+.settings-panel .settings-value-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  border-radius: 4px;
   background: transparent;
   cursor: pointer;
-  text-align: left;
-  color: var(--ik-text);
   font: inherit;
-  transition: background .12s, border-color .12s, box-shadow .12s;
+  color: var(--ik-text);
+  flex-shrink: 0;
+  max-width: 52%;
+  min-width: 0;
 }
-.settings-panel .format-option:hover {
-  background: var(--ik-bg2);
-  border-color: color-mix(in srgb, var(--ik-accent) 40%, var(--ik-border));
+.settings-panel .settings-value-toggle:hover {
+  background: color-mix(in srgb, var(--ik-text) 4%, transparent);
 }
-.settings-panel .format-option.active {
-  border-color: var(--ik-accent);
-  background: color-mix(in srgb, var(--ik-accent) 10%, transparent);
-  box-shadow: 0 0 0 1px var(--ik-accent) inset;
+.settings-panel .settings-value-toggle .value-name {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: var(--sp-text-title);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.settings-panel .format-option .name {
-  font-size: 12px; font-weight: 700; color: var(--ik-text);
+.settings-panel .settings-more-hit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-left: 0;
+  color: color-mix(in srgb, var(--ik-text) 45%, transparent);
+  flex-shrink: 0;
 }
-.settings-panel .format-option .desc {
-  font-size: 11px; color: var(--ik-muted); line-height: 1.3;
+.settings-panel .settings-more-hit svg {
+  display: block;
+}
+
+.settings-panel .settings-color-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 5px 0;
+  border-radius: 4px;
+}
+.settings-panel .settings-color-head {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: var(--sp-text-paragraph);
+}
+.settings-panel .settings-color-swatches {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  width: 100%;
+}
+.settings-panel .settings-color-swatch {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  background: var(--swatch, #6366f1);
+  box-sizing: border-box;
+}
+.settings-panel .settings-color-swatch:hover {
+  filter: brightness(1.06);
+}
+.settings-panel .settings-color-swatch.is-selected {
+  border-color: var(--ik-bg);
+  border-width: 2px;
+  box-shadow: 0 0 0 1px var(--swatch, #6366f1);
+}
+
+.settings-panel .settings-modes-section {
+  gap: 0;
+}
+.settings-panel .settings-mode-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 32px;
+  padding: 5px 0;
+  width: 100%;
+}
+.settings-panel .settings-mode-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  border-radius: 4px;
+}
+.settings-panel .settings-mode-main:hover {
+  background: color-mix(in srgb, var(--ik-text) 4%, transparent);
+}
+.settings-panel .settings-check-ui {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+  border: 1px solid var(--sp-checkbox-stroke);
+  background: #ffffff;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  position: relative;
+}
+:host-context([data-instruckt-theme="dark"]) .settings-panel .settings-check-ui {
+  background: var(--ik-bg);
+}
+@media (prefers-color-scheme: dark) {
+  :host-context(html:not([data-instruckt-theme="light"])) .settings-panel .settings-check-ui {
+    background: var(--ik-bg);
+  }
+}
+.settings-panel .settings-mode-row.is-selected .settings-check-ui {
+  border-color: var(--sp-checkbox-active);
+  background: var(--sp-checkbox-active);
+}
+.settings-panel .settings-mode-row.is-selected .settings-check-ui::after {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 2px;
+  width: 4px;
+  height: 8px;
+  border: solid #fff;
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.settings-panel .settings-mode-label {
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 22px;
+  color: var(--sp-text-paragraph);
 }
 `
 
@@ -297,8 +581,8 @@ export const POPUP_CSS = /* css */ `
 * { box-sizing: border-box; }
 
 :host {
-  --ik-accent: #6366f1;
-  --ik-accent-h: #4f46e5;
+  --ik-accent: var(--instruckt-accent, #6366f1);
+  --ik-accent-h: var(--instruckt-accent-hover, #4f46e5);
   --ik-bg: #ffffff;
   --ik-bg2: #f8f8f8;
   --ik-border: #e4e4e7;
@@ -306,7 +590,7 @@ export const POPUP_CSS = /* css */ `
   --ik-muted: #71717a;
   --ik-shadow: 0 4px 24px rgba(0,0,0,.12);
   --ik-radius: 10px;
-  --ik-hl: rgba(99,102,241,.15);
+  --ik-hl: color-mix(in srgb, var(--ik-accent) 15%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -314,7 +598,7 @@ export const POPUP_CSS = /* css */ `
     --ik-bg: #1c1c1e; --ik-bg2: #2c2c2e; --ik-border: #3a3a3c;
     --ik-text: #f4f4f5; --ik-muted: #a1a1aa;
     --ik-shadow: 0 4px 24px rgba(0,0,0,.5);
-    --ik-hl: rgba(99,102,241,.2);
+    --ik-hl: color-mix(in srgb, var(--ik-accent) 22%, transparent);
   }
 }
 
@@ -481,7 +765,7 @@ textarea::placeholder { color:var(--ik-muted); }
   font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.05em;
   border-radius:4px; padding:2px 6px;
 }
-.status-badge.pending      { background:rgba(99,102,241,.15); color:var(--ik-accent); }
+.status-badge.pending      { background:var(--ik-hl); color:var(--ik-accent); }
 .status-badge.resolved     { background:rgba(34,197,94,.15); color:#22c55e; }
 .status-badge.dismissed    { background:var(--ik-bg2); color:var(--ik-muted); }
 `
@@ -591,14 +875,61 @@ export const MARKER_CSS = /* css */ `
 }
 `
 
+/** Comma-separated R,G,B for the page theme accent (marker default). */
+export function getInstrucktAccentRgbComma(): string {
+  if (typeof document === 'undefined') return '99, 102, 241'
+  try {
+    const v = getComputedStyle(document.documentElement).getPropertyValue('--instruckt-accent-rgb').trim()
+    return v || '99, 102, 241'
+  } catch {
+    return '99, 102, 241'
+  }
+}
+
+function isValidHex6(s: string | undefined): s is string {
+  return !!s && /^#[0-9A-Fa-f]{6}$/.test(s.trim())
+}
+
+/** Darken / lighten hex by multiplying RGB channels (0–1 darker, >1 lighter). */
+function shadeHex(hex: string, factor: number): string {
+  const h = hex.replace('#', '').trim()
+  const m = /^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h)
+  if (!m) return '#4f46e5'
+  const ch = (i: number) => {
+    const n = Math.round(parseInt(m[i], 16) * factor)
+    return Math.max(0, Math.min(255, n)).toString(16).padStart(2, '0')
+  }
+  return `#${ch(1)}${ch(2)}${ch(3)}`
+}
+
+function hexToRgbComma(hex: string): string {
+  const h = hex.replace('#', '').trim()
+  const m = /^([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h)
+  if (!m) return '99, 102, 241'
+  return `${parseInt(m[1], 16)}, ${parseInt(m[2], 16)}, ${parseInt(m[3], 16)}`
+}
+
+/** `:root { … }` block: marker colors + theme tokens used by toolbar / popup / highlights. */
+function buildInstrucktRootCss(colors?: import('../types').MarkerColors): string {
+  const def = isValidHex6(colors?.default) ? colors!.default!.trim() : '#6366f1'
+  const hover = shadeHex(def, 0.88)
+  const rgb = hexToRgbComma(def)
+  const parts = [
+    `--ik-marker-default: ${def};`,
+    `--instruckt-accent: ${def};`,
+    `--instruckt-accent-hover: ${hover};`,
+    `--instruckt-accent-rgb: ${rgb};`,
+  ]
+  if (isValidHex6(colors?.screenshot)) parts.push(`--ik-marker-screenshot: ${colors!.screenshot!.trim()};`)
+  if (isValidHex6(colors?.dismissed)) parts.push(`--ik-marker-dismissed: ${colors!.dismissed!.trim()};`)
+  return `:root {\n  ${parts.join('\n  ')}\n}\n`
+}
+
 /** Inject styles into document.head (idempotent) */
 export function injectGlobalStyles(colors?: import('../types').MarkerColors): void {
   if (document.getElementById('instruckt-global')) return
-  const vars = colors
-    ? `:root {${colors.default ? ` --ik-marker-default: ${colors.default};` : ''}${colors.screenshot ? ` --ik-marker-screenshot: ${colors.screenshot};` : ''}${colors.dismissed ? ` --ik-marker-dismissed: ${colors.dismissed};` : ''} }\n`
-    : ''
   const style = document.createElement('style')
   style.id = 'instruckt-global'
-  style.textContent = vars + GLOBAL_CSS + MARKER_CSS
+  style.textContent = buildInstrucktRootCss(colors) + GLOBAL_CSS + MARKER_CSS
   document.head.appendChild(style)
 }

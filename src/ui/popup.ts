@@ -1,6 +1,7 @@
-import type { Annotation, PendingAnnotation } from '../types'
+import type { Annotation, PendingAnnotation, UiLocale } from '../types'
 import { POPUP_CSS } from './styles'
 import { captureElement } from './screenshot'
+import { captureButtonHtml, getPopupI18n } from './locale'
 
 interface PopupResult {
   comment: string
@@ -15,6 +16,8 @@ interface PopupCallbacks {
 interface EditCallbacks {
   onSave: (annotation: Annotation, newComment: string) => void
   onDelete: (annotation: Annotation) => void
+  /** Fired once when the edit panel is torn down (close, outside click, Escape, save, delete). */
+  onDismiss?: () => void
 }
 
 /** Resolve screenshot URL from annotation data */
@@ -34,11 +37,15 @@ function esc(s: string): string {
 export class AnnotationPopup {
   private host: HTMLElement | null = null
   private shadow: ShadowRoot | null = null
+  private onEditDismiss: (() => void) | undefined
+
+  constructor(private readonly getLocale: () => UiLocale = () => 'zh-CN') {}
 
   // ── New annotation popup ──────────────────────────────────────
 
   showNew(pending: PendingAnnotation, callbacks: PopupCallbacks): void {
     this.destroy()
+    const p = getPopupI18n(this.getLocale())
     this.host = document.createElement('div')
     this.host.setAttribute('data-instruckt', 'popup')
     this.stopHostPropagation(this.host)
@@ -62,17 +69,17 @@ export class AnnotationPopup {
     popup.innerHTML = `
       <div class="header">
         <span class="element-tag" title="${esc(pending.elementPath)}">${esc(pending.elementLabel)}</span>
-        <button class="close-btn" title="Cancel (Esc)">✕</button>
+        <button class="close-btn" title="${esc(p.cancelEscTitle)}">✕</button>
       </div>
       ${fwBadge}${selText}
       <div class="screenshot-slot">${hasScreenshot
-        ? `<div class="screenshot-preview"><img src="${pending.screenshot}" alt="Screenshot" /><button class="screenshot-remove" title="Remove screenshot">✕</button></div>`
-        : `<button class="btn-capture" data-action="capture"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Capture screenshot</button>`
+        ? `<div class="screenshot-preview"><img src="${pending.screenshot}" alt="${esc(p.screenshotAlt)}" /><button class="screenshot-remove" title="${esc(p.removeScreenshotTitle)}">✕</button></div>`
+        : captureButtonHtml(p.captureScreenshot)
       }</div>
-      <textarea placeholder="${hasScreenshot ? 'Add a note (optional)' : 'What needs to change here?'}" rows="3"></textarea>
+      <textarea placeholder="${hasScreenshot ? esc(p.placeholderWithScreenshot) : esc(p.placeholderNoScreenshot)}" rows="3"></textarea>
       <div class="actions">
-        <button class="btn-secondary" data-action="cancel">Cancel</button>
-        <button class="btn-primary" data-action="submit" ${hasScreenshot ? '' : 'disabled'}>Add note</button>
+        <button class="btn-secondary" data-action="cancel">${esc(p.cancel)}</button>
+        <button class="btn-primary" data-action="submit" ${hasScreenshot ? '' : 'disabled'}>${esc(p.addNote)}</button>
       </div>
     `
 
@@ -89,17 +96,20 @@ export class AnnotationPopup {
       // Capture button
       const captureBtn = screenshotSlot.querySelector('[data-action="capture"]')
       captureBtn?.addEventListener('click', async () => {
-        captureBtn.textContent = 'Capturing...'
+        captureBtn.textContent = p.capturing
         const dataUrl = await captureElement(pending.element)
         if (dataUrl) {
           currentScreenshot = dataUrl
-          screenshotSlot.innerHTML = `<div class="screenshot-preview"><img src="${dataUrl}" alt="Screenshot" /><button class="screenshot-remove" title="Remove screenshot">✕</button></div>`
-          textarea.placeholder = 'Add a note (optional)'
+          screenshotSlot.innerHTML = `<div class="screenshot-preview"><img src="${dataUrl}" alt="${esc(p.screenshotAlt)}" /><button class="screenshot-remove" title="${esc(p.removeScreenshotTitle)}">✕</button></div>`
+          textarea.placeholder = p.placeholderWithScreenshot
           attachScreenshotEvents()
           updateSubmitState()
         } else {
-          captureBtn.textContent = 'Capture failed'
-          setTimeout(() => { if (captureBtn.parentElement) captureBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Capture screenshot` }, 1500)
+          captureBtn.textContent = p.captureFailed
+          setTimeout(() => {
+            if (captureBtn.parentElement) captureBtn.outerHTML = captureButtonHtml(p.captureScreenshot)
+            attachScreenshotEvents()
+          }, 1500)
         }
       })
 
@@ -107,8 +117,8 @@ export class AnnotationPopup {
       const removeBtn = screenshotSlot.querySelector('.screenshot-remove')
       removeBtn?.addEventListener('click', () => {
         currentScreenshot = null
-        screenshotSlot.innerHTML = `<button class="btn-capture" data-action="capture"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg> Capture screenshot</button>`
-        textarea.placeholder = 'What needs to change here?'
+        screenshotSlot.innerHTML = captureButtonHtml(p.captureScreenshot)
+        textarea.placeholder = p.placeholderNoScreenshot
         attachScreenshotEvents()
         updateSubmitState()
       })
@@ -150,8 +160,10 @@ export class AnnotationPopup {
 
   // ── Edit existing annotation ──────────────────────────────────
 
-  showEdit(annotation: Annotation, callbacks: EditCallbacks, endpoint?: string): void {
+  showEdit(annotation: Annotation, callbacks: EditCallbacks, endpoint?: string, anchorEl?: HTMLElement | null): void {
     this.destroy()
+    this.onEditDismiss = callbacks.onDismiss
+    const p = getPopupI18n(this.getLocale())
     this.host = document.createElement('div')
     this.host.setAttribute('data-instruckt', 'popup')
     this.stopHostPropagation(this.host)
@@ -169,20 +181,20 @@ export class AnnotationPopup {
       : ''
     const ssUrl = screenshotUrl(annotation.screenshot, endpoint)
     const screenshotPreview = ssUrl
-      ? `<div class="screenshot-preview screenshot-slot"><img src="${ssUrl}" alt="Screenshot" /><button class="screenshot-remove" title="Remove screenshot">✕</button></div>`
+      ? `<div class="screenshot-preview screenshot-slot"><img src="${ssUrl}" alt="${esc(p.screenshotAlt)}" /><button class="screenshot-remove" title="${esc(p.removeScreenshotTitle)}">✕</button></div>`
       : ''
     const commentText = annotation.comment === '(screenshot)' ? '' : annotation.comment
 
     popup.innerHTML = `
       <div class="header">
         <span class="element-tag" title="${esc(annotation.elementPath)}">${esc(annotation.element)}</span>
-        <button class="close-btn">✕</button>
+        <button class="close-btn" title="${esc(p.closeAria)}">✕</button>
       </div>
       ${fwBadge}${screenshotPreview}
       <textarea rows="3">${esc(commentText)}</textarea>
       <div class="actions">
-        <button class="btn-danger" data-action="delete">Remove</button>
-        <button class="btn-primary" data-action="save">Save</button>
+        <button class="btn-danger" data-action="delete">${esc(p.remove)}</button>
+        <button class="btn-primary" data-action="save">${esc(p.save)}</button>
       </div>
     `
 
@@ -225,10 +237,11 @@ export class AnnotationPopup {
     this.shadow.appendChild(popup)
     ;(document.getElementById('instruckt-root') ?? document.body).appendChild(this.host)
 
-    // Position near the marker
+    // Position near the pin: prefer live marker DOM (follows targetOffset / scroll);
+    // fall back to stored annotation x/y (viewport % + document Y).
     const markerX = (annotation.x / 100) * window.innerWidth
     const markerY = annotation.y - window.scrollY
-    this.positionHost(markerX, markerY)
+    this.positionHost(markerX, markerY, anchorEl ?? undefined)
     this.setupOutsideClick()
     textarea.focus()
     textarea.setSelectionRange(textarea.value.length, textarea.value.length)
@@ -243,7 +256,8 @@ export class AnnotationPopup {
     }
   }
 
-  private positionHost(x: number, y: number): void {
+  /** Place fixed popup; when `anchorEl` is the marker pin, keep ≥8px gap on all sides. */
+  private positionHost(x: number, y: number, anchorEl?: HTMLElement): void {
     if (!this.host) return
     // Use popover="manual" to render in the top layer (above native popovers)
     this.host.setAttribute('popover', 'manual')
@@ -252,14 +266,77 @@ export class AnnotationPopup {
 
     requestAnimationFrame(() => {
       if (!this.host) return
-      const w = 340 + 20
-      const h = this.host.querySelector('.popup')?.getBoundingClientRect().height ?? 300
+      let ax = x
+      let ay = y
+      let markerRect: DOMRect | null = null
+      if (anchorEl?.isConnected) {
+        const r = anchorEl.getBoundingClientRect()
+        if (r.width > 0 && r.height > 0) {
+          markerRect = r
+          ax = r.left + r.width / 2
+          ay = r.top + r.height / 2
+        }
+      }
       const vw = window.innerWidth
       const vh = window.innerHeight
-      const left = Math.max(10, Math.min(x + 10, vw - w))
-      const top  = Math.max(10, Math.min(y + 10, vh - h - 10))
+      const inner = this.host.querySelector('.popup')?.getBoundingClientRect()
+      const pw = Math.max(this.host.getBoundingClientRect().width, inner?.width ?? 340, 300)
+      const ph = Math.max(this.host.getBoundingClientRect().height, inner?.height ?? 280, 120)
+
+      let left: number
+      let top: number
+      if (markerRect) {
+        const pos = this.computePopupPositionClearOfMarker(markerRect, pw, ph, vw, vh)
+        left = pos.left
+        top = pos.top
+      } else {
+        const w = 340 + 20
+        const h = inner?.height ?? 300
+        left = Math.max(10, Math.min(ax + 10, vw - w))
+        top = Math.max(10, Math.min(ay + 10, vh - h - 10))
+      }
       Object.assign(this.host.style, { left: `${left}px`, top: `${top}px` })
     })
+  }
+
+  /** ≥8px between popup edges and marker edges (viewport-clamped). */
+  private computePopupPositionClearOfMarker(
+    marker: DOMRect,
+    pw: number,
+    ph: number,
+    vw: number,
+    vh: number,
+  ): { left: number; top: number } {
+    const GAP = 8
+    const pad = {
+      left: marker.left - GAP,
+      top: marker.top - GAP,
+      right: marker.right + GAP,
+      bottom: marker.bottom + GAP,
+    }
+    const overlaps = (L: number, T: number): boolean => {
+      const R = L + pw
+      const B = T + ph
+      return !(R <= pad.left || L >= pad.right || B <= pad.top || T >= pad.bottom)
+    }
+    const clamp = (L: number, T: number): { left: number; top: number } => ({
+      left: Math.max(10, Math.min(L, vw - pw - 10)),
+      top: Math.max(10, Math.min(T, vh - ph - 10)),
+    })
+    const cx = marker.left + marker.width / 2
+    const cy = marker.top + marker.height / 2
+
+    const tries: Array<{ left: number; top: number }> = [
+      { left: pad.right, top: cy - ph / 2 },
+      { left: pad.left - pw, top: cy - ph / 2 },
+      { left: cx - pw / 2, top: pad.bottom },
+      { left: cx - pw / 2, top: pad.top - ph },
+    ]
+    for (const t of tries) {
+      const c = clamp(t.left, t.top)
+      if (!overlaps(c.left, c.top)) return c
+    }
+    return clamp(pad.right, cy - ph / 2)
   }
 
   private boundOutside = (e: MouseEvent): void => {
@@ -273,6 +350,13 @@ export class AnnotationPopup {
   }
 
   destroy(): void {
+    const dismiss = this.onEditDismiss
+    this.onEditDismiss = undefined
+    try {
+      dismiss?.()
+    } catch {
+      /* avoid blocking teardown */
+    }
     this.host?.remove()
     this.host = null
     this.shadow = null

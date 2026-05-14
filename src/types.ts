@@ -6,12 +6,21 @@ export type AnnotationStatus = 'pending' | 'resolved' | 'dismissed'
 export type OutputFormat = 'compact' | 'standard' | 'detailed' | 'forensic'
 
 /**
- * Whether markers for targets that are off-screen, clipped by a scroll
- * container, or inside a closed overlay are shown as "ghost" pins.
- * `current-page` matches the default: only show markers whose target is
- * actually visible. `all` shows every marker and supports click-to-reveal.
+ * @deprecated Use {@link MarkerVisibility} via `markerShowCurrentPage` /
+ * `markerShowAll` on config and settings. Kept for migrating saved `markerDisplayMode`.
  */
 export type MarkerDisplayMode = 'current-page' | 'all'
+
+/** Independent toggles for which markers are shown (settings panel). */
+export interface MarkerVisibility {
+  /** Solid pins for targets visible in the viewport (after overflow clipping). */
+  showCurrentPageMarkers: boolean
+  /** Ghost pins for off-screen / clipped / missing targets; enables click-to-reveal. */
+  showAllMarkers: boolean
+}
+
+/** Toolbar, settings panel, and annotation popup UI language. */
+export type UiLocale = 'zh-CN' | 'en' | 'ja'
 
 export interface OutputFormatOption {
   id: OutputFormat
@@ -30,8 +39,15 @@ export const OUTPUT_FORMAT_OPTIONS: OutputFormatOption[] = [
 export interface ToolbarSettingsAdapter {
   getOutputFormat: () => OutputFormat
   setOutputFormat: (fmt: OutputFormat) => void
-  getMarkerDisplayMode: () => MarkerDisplayMode
-  setMarkerDisplayMode: (mode: MarkerDisplayMode) => void
+  getMarkerShowCurrentPage: () => boolean
+  setMarkerShowCurrentPage: (show: boolean) => void
+  getMarkerShowAll: () => boolean
+  setMarkerShowAll: (show: boolean) => void
+  getUiLocale: () => UiLocale
+  setUiLocale: (locale: UiLocale) => void
+  /** Effective default marker pin color (hex), including preset override. */
+  getMarkerDefaultHex: () => string
+  setMarkerDefaultHex: (hex: string) => void
 }
 
 export interface SourceFrame {
@@ -98,7 +114,8 @@ export interface Annotation {
   resolvedAt?: string
   resolvedBy?: 'human' | 'agent'
   /**
-   * When set, a ghost marker in "All markers" mode can click the element
+   * When set, a ghost marker (when “show all markers” / ghost pins are enabled)
+   * can click the element
    * `[data-instruckt-open="<this value>"]` to re-open the overlay that
    * hosted the annotation (modal, drawer, etc.). Captured automatically
    * from the nearest ancestor `[data-instruckt-host]` at annotation time.
@@ -107,7 +124,7 @@ export interface Annotation {
 }
 
 export interface MarkerColors {
-  /** Default marker color. Default: '#6366f1' (indigo) */
+  /** Default marker color; also drives UI theme (toolbar accent, highlight box, popup primary). Default: '#6366f1' (indigo) */
   default?: string
   /** Screenshot marker color. Default: '#22c55e' (green) */
   screenshot?: string
@@ -159,8 +176,17 @@ export interface InstrucktConfig {
   mcp?: boolean
   /** Default output format for clipboard markdown. Default: 'standard' */
   outputFormat?: OutputFormat
-  /** Default marker display mode. Default: 'current-page' */
+  /**
+   * @deprecated Use `markerShowCurrentPage` and `markerShowAll`. When both new
+   * fields are omitted, this is still read once to seed visibility.
+   */
   markerDisplayMode?: MarkerDisplayMode
+  /** Show solid pins for in-viewport targets. Default: true */
+  markerShowCurrentPage?: boolean
+  /** Show ghost pins for hidden targets. Default: false */
+  markerShowAll?: boolean
+  /** UI language for toolbar, settings, and annotation popup. Default: 'zh-CN' */
+  uiLocale?: UiLocale
   /** Callbacks */
   onAnnotationAdd?: (annotation: Annotation) => void
   onAnnotationResolve?: (annotation: Annotation) => void

@@ -1,4 +1,5 @@
-import type { Annotation, InstrucktConfig, MarkerDisplayMode, OutputFormat, PendingAnnotation, ToolbarSettingsAdapter } from './types'
+import type { Annotation, InstrucktConfig, MarkerColors, MarkerDisplayMode, OutputFormat, PendingAnnotation, ToolbarSettingsAdapter, UiLocale } from './types'
+import { isUiLocale } from './ui/locale'
 import { InstrucktApi } from './api'
 import type { AnnotationPayload } from './api'
 import { Toolbar } from './ui/toolbar'
@@ -43,7 +44,11 @@ export class Instruckt {
   private initialLoadDone = false
   private hasBackend = false
   private outputFormat: OutputFormat = 'standard'
-  private markerDisplayMode: MarkerDisplayMode = 'current-page'
+  private markerShowCurrentPage = true
+  private markerShowAll = false
+  private uiLocale: UiLocale = 'zh-CN'
+  /** User-chosen default marker color (#RRGGBB); null = follow config.colors.default only. */
+  private markerDefaultHex: string | null = null
   private boundKeydown: (e: KeyboardEvent) => void
   private repositionRaf: number | null = null
   /**
@@ -87,7 +92,6 @@ export class Instruckt {
       adapters: ['livewire', 'vue', 'svelte', 'react', 'blade'],
       theme: 'auto',
       position: 'bottom-right',
-      markerDisplayMode: 'current-page',
       ...config,
     }
     this.api = new InstrucktApi(config.endpoint)
@@ -97,7 +101,7 @@ export class Instruckt {
   }
 
   private init(): void {
-    injectGlobalStyles(this.config.colors)
+    this.applyMarkerColorsToDoc()
 
     // Livewire / Flux use shadow DOM which breaks DOM-to-image screenshot libs.
     // When Livewire is detected, go straight to Screen Capture API.
@@ -125,10 +129,10 @@ export class Instruckt {
     }, this.config.keys, this.config.tools, this.makeSettingsAdapter())
 
     this.highlight = new ElementHighlight()
-    this.popup = new AnnotationPopup()
+    this.popup = new AnnotationPopup(() => this.uiLocale)
     this.markers = new AnnotationMarkers(
       (annotation, ctx) => { this.onMarkerClick(annotation, ctx) },
-      () => this.markerDisplayMode,
+      () => ({ showCurrentPageMarkers: this.markerShowCurrentPage, showAllMarkers: this.markerShowAll }),
     )
 
     document.addEventListener('keydown', this.boundKeydown)
@@ -199,7 +203,7 @@ export class Instruckt {
 
     this.markers = new AnnotationMarkers(
       (annotation, ctx) => { this.onMarkerClick(annotation, ctx) },
-      () => this.markerDisplayMode,
+      () => ({ showCurrentPageMarkers: this.markerShowCurrentPage, showAllMarkers: this.markerShowAll }),
     )
     this.highlight = new ElementHighlight()
 
@@ -208,7 +212,7 @@ export class Instruckt {
     // Re-inject global styles (Livewire may have swapped <head> content)
     const existing = document.getElementById('instruckt-global')
     if (existing) existing.remove()
-    injectGlobalStyles(this.config.colors)
+    this.applyMarkerColorsToDoc()
 
     this.syncMarkers()
 
@@ -235,22 +239,76 @@ export class Instruckt {
 
   // ── Settings (user-facing, persisted) ───────────────────────────
 
+  private mergeMarkerColors(): MarkerColors | undefined {
+    const base = this.config.colors
+    const def = this.markerDefaultHex ?? base?.default
+    if (!base && !def) return undefined
+    return { ...(base ?? {}), ...(def ? { default: def } : {}) }
+  }
+
+  /** Re-apply :root marker CSS variables (removes previous tag so updates take effect). */
+  private applyMarkerColorsToDoc(): void {
+    document.getElementById('instruckt-global')?.remove()
+    injectGlobalStyles(this.mergeMarkerColors())
+  }
+
   private static get SETTINGS_KEY() {
     return `instruckt:${window.location.origin}:settings`
   }
 
+  /** Seed marker toggles from `InstrucktConfig` (incl. deprecated `markerDisplayMode`). */
+  private hydrateMarkerVisibilityFromConfig(): void {
+    if (this.config.markerShowCurrentPage !== undefined || this.config.markerShowAll !== undefined) {
+      this.markerShowCurrentPage = this.config.markerShowCurrentPage ?? true
+      this.markerShowAll = this.config.markerShowAll ?? false
+      return
+    }
+    if (this.config.markerDisplayMode === 'all') {
+      this.markerShowCurrentPage = true
+      this.markerShowAll = true
+    } else {
+      this.markerShowCurrentPage = true
+      this.markerShowAll = false
+    }
+  }
+
   private loadSettings(): void {
     this.outputFormat = this.config.outputFormat ?? 'standard'
-    this.markerDisplayMode = this.config.markerDisplayMode ?? 'current-page'
+    this.hydrateMarkerVisibilityFromConfig()
+    this.uiLocale = this.config.uiLocale ?? 'zh-CN'
     try {
       const raw = localStorage.getItem(Instruckt.SETTINGS_KEY)
       if (!raw) return
-      const data = JSON.parse(raw) as { outputFormat?: OutputFormat; markerDisplayMode?: MarkerDisplayMode }
+      const data = JSON.parse(raw) as {
+        outputFormat?: OutputFormat
+        markerDisplayMode?: MarkerDisplayMode
+        markerShowCurrentPage?: boolean
+        markerShowAll?: boolean
+        uiLocale?: string
+        markerDefaultHex?: string
+      }
       if (data?.outputFormat && ['compact', 'standard', 'detailed', 'forensic'].includes(data.outputFormat)) {
         this.outputFormat = data.outputFormat
       }
-      if (data?.markerDisplayMode && (data.markerDisplayMode === 'current-page' || data.markerDisplayMode === 'all')) {
-        this.markerDisplayMode = data.markerDisplayMode
+      const hasNewMarker =
+        typeof data.markerShowCurrentPage === 'boolean' || typeof data.markerShowAll === 'boolean'
+      if (hasNewMarker) {
+        if (typeof data.markerShowCurrentPage === 'boolean')
+          this.markerShowCurrentPage = data.markerShowCurrentPage
+        if (typeof data.markerShowAll === 'boolean')
+          this.markerShowAll = data.markerShowAll
+      } else if (data?.markerDisplayMode === 'all') {
+        this.markerShowCurrentPage = true
+        this.markerShowAll = true
+      } else if (data?.markerDisplayMode === 'current-page') {
+        this.markerShowCurrentPage = true
+        this.markerShowAll = false
+      }
+      if (data?.uiLocale && isUiLocale(data.uiLocale)) {
+        this.uiLocale = data.uiLocale
+      }
+      if (data?.markerDefaultHex && /^#[0-9A-Fa-f]{6}$/.test(data.markerDefaultHex)) {
+        this.markerDefaultHex = data.markerDefaultHex
       }
     } catch { /* storage unavailable */ }
   }
@@ -259,7 +317,13 @@ export class Instruckt {
     try {
       localStorage.setItem(
         Instruckt.SETTINGS_KEY,
-        JSON.stringify({ outputFormat: this.outputFormat, markerDisplayMode: this.markerDisplayMode }),
+        JSON.stringify({
+          outputFormat: this.outputFormat,
+          markerShowCurrentPage: this.markerShowCurrentPage,
+          markerShowAll: this.markerShowAll,
+          uiLocale: this.uiLocale,
+          markerDefaultHex: this.markerDefaultHex,
+        }),
       )
     } catch { /* storage unavailable */ }
   }
@@ -271,11 +335,35 @@ export class Instruckt {
         this.outputFormat = fmt
         this.saveSettings()
       },
-      getMarkerDisplayMode: () => this.markerDisplayMode,
-      setMarkerDisplayMode: (mode: MarkerDisplayMode) => {
-        this.markerDisplayMode = mode
+      getMarkerShowCurrentPage: () => this.markerShowCurrentPage,
+      setMarkerShowCurrentPage: (show: boolean) => {
+        this.markerShowCurrentPage = show
         this.saveSettings()
         this.boundReposition()
+        this.toolbar?.syncMarkerDisplayModeUI()
+      },
+      getMarkerShowAll: () => this.markerShowAll,
+      setMarkerShowAll: (show: boolean) => {
+        this.markerShowAll = show
+        this.saveSettings()
+        this.boundReposition()
+        this.toolbar?.syncMarkerDisplayModeUI()
+      },
+      getUiLocale: () => this.uiLocale,
+      setUiLocale: (locale: UiLocale) => {
+        this.uiLocale = locale
+        this.saveSettings()
+        this.toolbar?.refreshI18n()
+      },
+      getMarkerDefaultHex: () => {
+        return this.markerDefaultHex ?? this.config.colors?.default ?? '#6366f1'
+      },
+      setMarkerDefaultHex: (hex: string) => {
+        if (!/^#[0-9A-Fa-f]{6}$/.test(hex)) return
+        this.markerDefaultHex = hex
+        this.saveSettings()
+        this.applyMarkerColorsToDoc()
+        this.toolbar?.refreshI18n()
       },
     }
   }
@@ -934,15 +1022,16 @@ export class Instruckt {
 
   // ── Marker click — edit or delete ─────────────────────────────
 
-  private onMarkerClick(annotation: Annotation, ctx: { ghost: boolean }): void {
+  private onMarkerClick(annotation: Annotation, ctx: { ghost: boolean; anchorEl: HTMLElement }): void {
     void this.handleMarkerClick(annotation, ctx)
   }
 
-  private async handleMarkerClick(annotation: Annotation, ctx: { ghost: boolean }): Promise<void> {
-    if (ctx.ghost && this.markerDisplayMode === 'all') {
+  private async handleMarkerClick(annotation: Annotation, ctx: { ghost: boolean; anchorEl: HTMLElement }): Promise<void> {
+    if (ctx.ghost && this.markerShowAll) {
       await this.markers?.revealHiddenTarget(annotation)
-      this.boundReposition()
     }
+    // Sync layout before anchoring the edit popup (rAF-based reposition would be one frame late).
+    this.markers?.reposition(this.annotations)
     this.popup?.showEdit(annotation, {
       onSave: async (a, newComment) => {
         try {
@@ -959,7 +1048,9 @@ export class Instruckt {
         } catch { /* no backend — just remove locally */ }
         this.removeAnnotation(a.id)
       },
-    }, this.config.endpoint)
+      onDismiss: () => this.markers?.unpinSpotlightForEdit(),
+    }, this.config.endpoint, ctx.anchorEl)
+    this.markers?.pinSpotlightForEdit(annotation)
   }
 
   private onAnnotationUpdated(updated: Annotation): void {
