@@ -164,6 +164,11 @@ export interface InstrucktConfig {
   theme?: 'light' | 'dark' | 'auto'
   /** Position of the toolbar. Default: 'bottom-right' */
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
+  /**
+   * CSS selector for the page content column the toolbar aligns to on resize/zoom
+   * (e.g. `main`, `.page`). When omitted, a centered layout wrapper is auto-detected.
+   */
+  positionAnchor?: string
   /** Customize marker pin colors */
   colors?: MarkerColors
   /** Customize keyboard shortcuts */

@@ -1,5 +1,5 @@
 import type { KeyBindings, OutputFormat, ToolbarSettingsAdapter, ToolsConfig } from '../types'
-import { TOOLBAR_CSS } from './styles'
+import { SETTINGS_PANEL_WIDTH_PX, TOOLBAR_CSS } from './styles'
 import { getToolbarI18n, UI_LOCALE_CYCLE, uiLocaleLabel } from './locale'
 import { INSTRUCKT_VERSION } from '../version'
 
@@ -13,6 +13,11 @@ interface ToolbarCallbacks {
   onClearPage?: () => void
   onClearAll?: () => void
   onMinimize?: (minimized: boolean) => void
+}
+
+export interface ToolbarLayoutOptions {
+  /** CSS selector for the page content column (e.g. `main`, `.page`). */
+  positionAnchor?: string
 }
 
 // ── Inline SVG icons (24x24, 2px stroke) ─────────────────────
@@ -43,9 +48,6 @@ const HELP_ICON = `<svg width="16" height="16" viewBox="0 0 16 16" fill="none" x
 /** Settings header wordmark — design asset (Figma). */
 const SETTINGS_BRAND_LOGO_SVG = `<svg width="102" height="9" viewBox="0 0 102 9" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><path d="M3.66569e-06 8.58V1.43051e-06H7.188C8.076 1.43051e-06 8.764 0.224001 9.252 0.672001C9.748 1.12 9.996 1.8 9.996 2.712C9.996 3.488 9.816 4.096 9.456 4.536C9.096 4.976 8.584 5.252 7.92 5.364L9.9 8.58H7.716L5.88 5.424H1.92V8.58H3.66569e-06ZM6.96 1.56H1.92V3.852L6.96 3.864C7.312 3.864 7.58 3.776 7.764 3.6C7.956 3.424 8.052 3.128 8.052 2.712C8.052 2.288 7.956 1.992 7.764 1.824C7.58 1.648 7.312 1.56 6.96 1.56ZM14.4255 8.64C13.3535 8.64 12.5175 8.376 11.9175 7.848C11.3175 7.312 11.0175 6.528 11.0175 5.496C11.0175 4.456 11.3175 3.672 11.9175 3.144C12.5175 2.608 13.3535 2.34 14.4255 2.34H17.4255C18.1295 2.34 18.6655 2.508 19.0335 2.844C19.4095 3.172 19.5975 3.644 19.5975 4.26C19.5975 5.516 18.8735 6.144 17.4255 6.144H12.8895C13.0575 6.888 13.5695 7.26 14.4255 7.26H19.2855V8.64H14.4255ZM14.4255 3.72C13.6015 3.72 13.0935 4.068 12.9015 4.764H17.3415C17.5015 4.764 17.6255 4.716 17.7135 4.62C17.8095 4.524 17.8575 4.392 17.8575 4.224C17.8575 3.888 17.6855 3.72 17.3415 3.72H14.4255ZM28.2874 8.58H26.5474V1.43051e-06H28.2874V8.58ZM27.9874 8.58H23.8474C22.7754 8.58 21.9394 8.316 21.3394 7.788C20.7394 7.26 20.4394 6.496 20.4394 5.496C20.4394 4.488 20.7394 3.72 21.3394 3.192C21.9394 2.664 22.7754 2.4 23.8474 2.4H27.8674V3.78H23.8474C23.3274 3.78 22.9274 3.924 22.6474 4.212C22.3754 4.492 22.2394 4.92 22.2394 5.496C22.2394 6.064 22.3754 6.492 22.6474 6.78C22.9274 7.06 23.3274 7.2 23.8474 7.2H27.9874V8.58ZM29.4291 5.772V4.392H33.1011V5.772H29.4291ZM34.238 8.58V2.4H35.978V8.58H34.238ZM34.226 1.38V0.0240011H35.99V1.38H34.226ZM37.2966 8.58V2.4H42.6846C43.3886 2.4 43.9006 2.576 44.2206 2.928C44.5486 3.272 44.7126 3.728 44.7126 4.296V8.58H42.9726V4.5C42.9726 4.02 42.7326 3.78 42.2526 3.78H39.0366V8.58H37.2966ZM45.7644 8.64V7.26H51.6444C51.9804 7.26 52.1484 7.072 52.1484 6.696C52.1484 6.328 51.9804 6.144 51.6444 6.144H47.8404C47.1284 6.144 46.5884 5.984 46.2204 5.664C45.8524 5.336 45.6684 4.868 45.6684 4.26C45.6684 3.644 45.8524 3.172 46.2204 2.844C46.5964 2.508 47.1364 2.34 47.8404 2.34H53.3124V3.72H47.9244C47.5804 3.72 47.4084 3.888 47.4084 4.224C47.4084 4.392 47.4564 4.524 47.5524 4.62C47.6484 4.716 47.7724 4.764 47.9244 4.764H51.9564C52.5804 4.764 53.0564 4.928 53.3844 5.256C53.7204 5.576 53.8884 6.044 53.8884 6.66C53.8884 7.284 53.7204 7.772 53.3844 8.124C53.0484 8.468 52.5724 8.64 51.9564 8.64H45.7644ZM58.1258 8.58C57.4298 8.58 56.9178 8.408 56.5898 8.064C56.2618 7.712 56.0978 7.252 56.0978 6.684V3.78H54.3098V2.4H56.0978V0.504001H57.8378V2.4H60.4058V3.78H57.8378V6.468C57.8378 6.956 58.0778 7.2 58.5578 7.2H60.7418V8.58H58.1258ZM61.6364 8.58V2.4H66.3644C67.0604 2.4 67.5724 2.576 67.9004 2.928C68.2284 3.272 68.3924 3.728 68.3924 4.296V5.58H66.6284V4.512C66.6284 4.032 66.3884 3.792 65.9084 3.792H63.4004V8.58H61.6364ZM71.3153 8.58C70.6113 8.58 70.0953 8.404 69.7673 8.052C69.4473 7.7 69.2873 7.244 69.2873 6.684V2.4H71.0273V6.48C71.0273 6.96 71.2673 7.2 71.7473 7.2H74.2433C74.7233 7.2 74.9633 6.96 74.9633 6.48V2.4H76.7033V6.684C76.7033 7.244 76.5393 7.7 76.2113 8.052C75.8913 8.404 75.3793 8.58 74.6753 8.58H71.3153ZM81.1286 8.64C80.0566 8.64 79.2206 8.376 78.6206 7.848C78.0206 7.312 77.7206 6.528 77.7206 5.496C77.7206 4.456 78.0206 3.672 78.6206 3.144C79.2206 2.608 80.0566 2.34 81.1286 2.34H85.1486V3.72H81.1286C80.6086 3.72 80.2086 3.864 79.9286 4.152C79.6566 4.44 79.5206 4.888 79.5206 5.496C79.5206 6.096 79.6566 6.54 79.9286 6.828C80.2086 7.116 80.6086 7.26 81.1286 7.26H85.2686V8.64H81.1286ZM86.1638 8.58V1.43051e-06H87.9038V2.4H92.0558C92.7598 2.4 93.2958 2.568 93.6638 2.904C94.0398 3.232 94.2278 3.704 94.2278 4.32C94.2278 5.328 93.7478 5.928 92.7878 6.12L94.2518 8.58H92.2958L90.8798 6.192H87.9038V8.58H86.1638ZM91.9718 3.768H87.9038V4.824H91.9718C92.1318 4.824 92.2558 4.776 92.3438 4.68C92.4398 4.584 92.4878 4.452 92.4878 4.284C92.4878 3.94 92.3158 3.768 91.9718 3.768ZM98.5438 8.58C97.8478 8.58 97.3358 8.408 97.0078 8.064C96.6798 7.712 96.5158 7.252 96.5158 6.684V3.78H94.7278V2.4H96.5158V0.504001H98.2558V2.4H100.824V3.78H98.2558V6.468C98.2558 6.956 98.4958 7.2 98.9758 7.2H101.16V8.58H98.5438Z" fill="#FF2442"/></svg>`
 
-/** Vertical “more” control (Figma value affordance). */
-const MORE_VERT_ICON = `<svg width="4" height="16" viewBox="0 0 4 16" fill="currentColor" aria-hidden="true"><circle cx="2" cy="2" r="1.4"/><circle cx="2" cy="8" r="1.4"/><circle cx="2" cy="14" r="1.4"/></svg>`
-
 export class Toolbar {
   private host!: HTMLElement
   private shadow!: ShadowRoot
@@ -67,8 +69,14 @@ export class Toolbar {
   private freezeActive = false
   private minimized = false
   private totalCount = 0
-  private dragging = false
+  private dragPointer: 'toolbar' | 'fab' | null = null
+  private dragMoved = false
+  private dragStartClient = { x: 0, y: 0 }
   private dragOffset = { x: 0, y: 0 }
+  private activePointerId: number | null = null
+  private userPositioned = false
+  private layoutSyncRaf: number | null = null
+  private readonly positionAnchor?: string
 
   private settingsBtn: HTMLButtonElement | null = null
   private settingsPanel: HTMLDivElement | null = null
@@ -87,12 +95,15 @@ export class Toolbar {
     keys?: KeyBindings,
     tools?: ToolsConfig,
     settings?: ToolbarSettingsAdapter,
+    layout?: ToolbarLayoutOptions,
   ) {
     this.keys = keys ?? {}
     this.tools = tools ?? {}
     this.settings = settings ?? null
+    this.positionAnchor = layout?.positionAnchor
     this.build()
     this.setupDrag()
+    this.setupLayoutSync()
   }
 
   /** Whether a built-in tool should be shown (default true if not specified). */
@@ -210,6 +221,7 @@ export class Toolbar {
       <div class="panel-body"></div>
     `
     this.settingsPanel.style.display = 'none'
+    this.applySettingsPanelWidth()
     this.shadow.appendChild(this.settingsPanel)
 
     this.panelBrandEl = this.settingsPanel.querySelector('.panel-brand')
@@ -228,10 +240,6 @@ export class Toolbar {
     this.fab.className = 'fab'
     this.fab.innerHTML = ICONS.logo
     this.fab.style.display = 'none'
-    this.fab.addEventListener('click', (e) => {
-      e.stopPropagation()
-      this.setMinimized(false)
-    })
     this.shadow.appendChild(this.fab)
 
     this.applyToolbarI18n()
@@ -243,10 +251,11 @@ export class Toolbar {
     this.host.addEventListener('mousedown', (e) => e.stopPropagation())
     this.host.addEventListener('pointerdown', (e) => e.stopPropagation())
 
-    this.applyPosition()
-    this.loadSavedPosition()
     const root = document.getElementById('instruckt-root') ?? document.body
     root.appendChild(this.host)
+    Object.assign(this.host.style, { position: 'fixed', zIndex: '2147483646' })
+    if (!this.loadSavedPosition()) this.applyDefaultPosition()
+    requestAnimationFrame(() => this.syncLayoutPosition())
   }
 
   private makeBtn(iconHtml: string, tooltip: string, onClick: () => void): HTMLButtonElement {
@@ -262,68 +271,287 @@ export class Toolbar {
     return btn
   }
 
-  private applyPosition(): void {
-    const m = '16px'
-    Object.assign(this.host.style, {
-      position: 'fixed',
-      zIndex: '2147483646',
-      bottom: this.position.includes('bottom') ? m : 'auto',
-      top: this.position.includes('top') ? m : 'auto',
-      right: this.position.includes('right') ? m : 'auto',
-      left: this.position.includes('left') ? m : 'auto',
-    })
-  }
+  /** Minimum distance from viewport edges (px). */
+  private static readonly EDGE_INSET_PX = 20
+
+  private static readonly DRAG_THRESHOLD_PX = 5
 
   private static readonly POSITION_KEY = 'instruckt:toolbar-pos'
 
+  /** Auto-detect a centered page column (landing pages, SPA shells). */
+  private detectLayoutAnchor(): HTMLElement {
+    const fits = (el: HTMLElement): boolean => {
+      const r = el.getBoundingClientRect()
+      if (r.width < 320 || r.height < 120) return false
+      const vw = window.innerWidth
+      return r.width <= vw * 0.98 && r.width >= Math.min(vw * 0.45, 480)
+    }
+
+    const main = document.querySelector('main, [role="main"]')
+    if (main instanceof HTMLElement && fits(main)) return main
+
+    const app = document.getElementById('app')
+    if (app) {
+      for (const child of app.children) {
+        if (child instanceof HTMLElement && fits(child)) return child
+      }
+    }
+
+    for (const child of document.body.children) {
+      if (!(child instanceof HTMLElement)) continue
+      if (child.hasAttribute('data-instruckt')) continue
+      if (fits(child)) return child
+    }
+
+    return document.documentElement
+  }
+
+  private resolveLayoutAnchor(): HTMLElement {
+    if (this.positionAnchor) {
+      const el = document.querySelector(this.positionAnchor)
+      if (el instanceof HTMLElement) return el
+    }
+    return this.detectLayoutAnchor()
+  }
+
+  private getLayoutBounds(): DOMRect {
+    const anchor = this.resolveLayoutAnchor()
+    if (anchor === document.documentElement) {
+      return new DOMRect(0, 0, window.innerWidth, window.innerHeight)
+    }
+    return anchor.getBoundingClientRect()
+  }
+
+  /** Place toolbar relative to the page content column (not only the viewport). */
+  private applyDefaultPosition(): void {
+    const b = this.getLayoutBounds()
+    const { width, height } = this.getHostSize()
+    const pad = Toolbar.EDGE_INSET_PX
+    const left = this.position.includes('right') ? b.right - width - pad : b.left + pad
+    const top = this.position.includes('bottom') ? b.bottom - height - pad : b.top + pad
+    this.applyHostPosition(left, top)
+  }
+
+  private syncLayoutPosition(): void {
+    if (!this.host.isConnected) return
+    if (this.userPositioned) {
+      this.ensureHostInViewport()
+    } else {
+      this.applyDefaultPosition()
+    }
+    if (this.settingsOpen) this.positionSettingsPanel()
+  }
+
+  private boundLayoutSync = (): void => {
+    if (this.layoutSyncRaf !== null) return
+    this.layoutSyncRaf = requestAnimationFrame(() => {
+      this.layoutSyncRaf = null
+      this.syncLayoutPosition()
+    })
+  }
+
+  private setupLayoutSync(): void {
+    window.addEventListener('resize', this.boundLayoutSync, { passive: true })
+    document.addEventListener('scroll', this.boundLayoutSync, { capture: true, passive: true })
+    window.visualViewport?.addEventListener('resize', this.boundLayoutSync)
+    window.visualViewport?.addEventListener('scroll', this.boundLayoutSync)
+  }
+
+  private getHostSize(): { width: number; height: number } {
+    const rect = this.host.getBoundingClientRect()
+    return {
+      width: this.host.offsetWidth || rect.width || 48,
+      height: this.host.offsetHeight || rect.height || 200,
+    }
+  }
+
+  private clampHostPosition(left: number, top: number): { left: number; top: number } {
+    const pad = Toolbar.EDGE_INSET_PX
+    const { width, height } = this.getHostSize()
+    const maxLeft = Math.max(pad, window.innerWidth - width - pad)
+    const maxTop = Math.max(pad, window.innerHeight - height - pad)
+    return {
+      left: Math.min(Math.max(left, pad), maxLeft),
+      top: Math.min(Math.max(top, pad), maxTop),
+    }
+  }
+
+  private applyHostPosition(left: number, top: number): void {
+    const clamped = this.clampHostPosition(left, top)
+    Object.assign(this.host.style, {
+      left: `${clamped.left}px`,
+      top: `${clamped.top}px`,
+      right: 'auto',
+      bottom: 'auto',
+    })
+  }
+
+  private ensureHostInViewport(): void {
+    if (!this.host.isConnected) return
+    const rect = this.host.getBoundingClientRect()
+    this.applyHostPosition(rect.left, rect.top)
+    if (this.settingsOpen) this.positionSettingsPanel()
+  }
+
+  private parseSavedPosition(raw: {
+    left?: string
+    right?: string
+    top?: string
+    bottom?: string
+  }): { left: number; top: number } | null {
+    const { width, height } = this.getHostSize()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+    const rect = this.host.getBoundingClientRect()
+
+    let left: number | null = null
+    let top: number | null = null
+
+    if (raw.left && raw.left !== 'auto') left = parseFloat(raw.left)
+    else if (raw.right && raw.right !== 'auto') left = vw - parseFloat(raw.right) - width
+
+    if (raw.top && raw.top !== 'auto') top = parseFloat(raw.top)
+    else if (raw.bottom && raw.bottom !== 'auto') top = vh - parseFloat(raw.bottom) - height
+
+    if (left === null || Number.isNaN(left)) left = rect.left
+    if (top === null || Number.isNaN(top)) top = rect.top
+    if (Number.isNaN(left) || Number.isNaN(top)) return null
+
+    return { left, top }
+  }
+
   private savePosition(): void {
-    const { left, right, top, bottom } = this.host.style
+    this.userPositioned = true
+    const { left, top } = this.host.style
     try {
-      localStorage.setItem(Toolbar.POSITION_KEY, JSON.stringify({ left, right, top, bottom }))
+      localStorage.setItem(Toolbar.POSITION_KEY, JSON.stringify({ left, top, right: 'auto', bottom: 'auto' }))
     } catch {}
   }
 
-  private loadSavedPosition(): void {
+  private loadSavedPosition(): boolean {
     try {
       const raw = localStorage.getItem(Toolbar.POSITION_KEY)
-      if (!raw) return
-      const { left, right, top, bottom } = JSON.parse(raw)
-      Object.assign(this.host.style, { left, right, top, bottom })
-    } catch {}
+      if (!raw) return false
+      const parsed = this.parseSavedPosition(JSON.parse(raw))
+      if (!parsed) return false
+      this.userPositioned = true
+      this.applyHostPosition(parsed.left, parsed.top)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  private beginDragPointer(e: PointerEvent, source: 'toolbar' | 'fab'): void {
+    if (e.button !== 0) return
+    const rect = this.host.getBoundingClientRect()
+    this.dragPointer = source
+    this.dragMoved = false
+    this.dragStartClient = { x: e.clientX, y: e.clientY }
+    this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    this.activePointerId = e.pointerId
+    try {
+      this.host.setPointerCapture(e.pointerId)
+    } catch {
+      /* ignore */
+    }
+  }
+
+  private endDragPointer(e?: PointerEvent): void {
+    if (!this.dragPointer) return
+    if (e !== undefined && this.activePointerId !== null && e.pointerId !== this.activePointerId) return
+
+    const source = this.dragPointer
+    const moved = this.dragMoved
+
+    if (this.activePointerId !== null) {
+      try {
+        this.host.releasePointerCapture(this.activePointerId)
+      } catch {
+        /* ignore */
+      }
+      this.activePointerId = null
+    }
+
+    this.dragPointer = null
+    this.dragMoved = false
+
+    if (source === 'fab' && !moved) this.setMinimized(false)
+    if (moved) this.savePosition()
+  }
+
+  private onDragPointerMove = (e: PointerEvent): void => {
+    if (!this.dragPointer) return
+    if (this.activePointerId !== null && e.pointerId !== this.activePointerId) return
+    // mouseup outside the viewport may be missed — stop when no button is held
+    if (e.buttons === 0) {
+      this.endDragPointer(e)
+      return
+    }
+    if (!this.dragMoved) {
+      const dx = e.clientX - this.dragStartClient.x
+      const dy = e.clientY - this.dragStartClient.y
+      if (Math.hypot(dx, dy) < Toolbar.DRAG_THRESHOLD_PX) return
+      this.dragMoved = true
+    }
+    this.applyHostPosition(e.clientX - this.dragOffset.x, e.clientY - this.dragOffset.y)
+  }
+
+  private boundEndDrag = (): void => {
+    this.endDragPointer()
   }
 
   private setupDrag(): void {
-    this.shadow.addEventListener('mousedown', (evt) => {
-      const e = evt as MouseEvent
+    this.shadow.addEventListener('pointerdown', (evt) => {
+      const e = evt as PointerEvent
       const target = e.target as Element
-      // Don't start drag from buttons, fab, or inside the settings panel
       if (target.closest('.btn') || target.closest('.fab') || target.closest('.settings-panel')) return
-      this.dragging = true
-      const rect = this.host.getBoundingClientRect()
-      this.dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      this.beginDragPointer(e, 'toolbar')
       e.preventDefault()
     })
 
-    document.addEventListener('mousemove', (e) => {
-      if (!this.dragging) return
-      Object.assign(this.host.style, {
-        left: `${e.clientX - this.dragOffset.x}px`,
-        bottom: `${window.innerHeight - (e.clientY - this.dragOffset.y) - this.host.offsetHeight}px`,
-        top: 'auto',
-        right: 'auto',
-      })
+    this.fab.addEventListener('pointerdown', (e) => {
+      e.stopPropagation()
+      this.beginDragPointer(e, 'fab')
+      e.preventDefault()
     })
 
-    document.addEventListener('mouseup', () => {
-      if (this.dragging) this.savePosition()
-      this.dragging = false
-    })
+    this.host.addEventListener('pointermove', this.onDragPointerMove)
+    this.host.addEventListener('pointerup', (e) => this.endDragPointer(e))
+    this.host.addEventListener('pointercancel', (e) => this.endDragPointer(e))
+    window.addEventListener('mouseup', this.boundEndDrag)
+    window.addEventListener('blur', this.boundEndDrag)
+  }
+
+  /** Reposition host when switching toolbar ↔ FAB so the bottom anchor stays stable near viewport edges. */
+  private applyMinimizedLayout(min: boolean): void {
+    const rect = this.host.getBoundingClientRect()
+    const left = rect.left
+    const anchorBottom = rect.bottom
+    const pad = Toolbar.EDGE_INSET_PX
+    const vh = window.innerHeight
+
+    this.toolbarEl.style.display = min ? 'none' : ''
+    this.fab.style.display = min ? '' : 'none'
+    this.minimized = min
+
+    if (min) {
+      const fabH = this.fab.offsetHeight || 32
+      this.applyHostPosition(left, anchorBottom - fabH)
+      return
+    }
+
+    const toolbarH = this.toolbarEl.offsetHeight || this.getHostSize().height
+    const keepTop = rect.top
+    const spaceBelow = vh - pad - (keepTop + toolbarH)
+    const top = spaceBelow < 0 ? anchorBottom - toolbarH : keepTop
+    this.applyHostPosition(left, top)
+    this.ensureHostInViewport()
   }
 
   private setMinimized(min: boolean): void {
-    this.minimized = min
-    this.toolbarEl.style.display = min ? 'none' : ''
-    this.fab.style.display = min ? '' : 'none'
+    if (this.minimized === min) return
+    this.applyMinimizedLayout(min)
     if (min) this.closeSettings()
     this.updateFabBadge()
     this.callbacks.onMinimize?.(min)
@@ -400,7 +628,7 @@ export class Toolbar {
         </div>
         <button type="button" class="settings-value-toggle settings-output-cycle" aria-label="${this.escAttr(t.outputCycleAria)}">
           <span class="value-name">${this.escHtml(t.formatLabel[currentFmt])}</span>
-          <span class="settings-more-hit" aria-hidden="true">${MORE_VERT_ICON}</span>
+          ${this.buildSettingsCycleDotsHtml(OUTPUT_FORMAT_CYCLE.length, Math.max(0, OUTPUT_FORMAT_CYCLE.indexOf(currentFmt)))}
         </button>
       </div>
     `
@@ -410,8 +638,8 @@ export class Toolbar {
       const cur = this.settings?.getOutputFormat() ?? 'standard'
       let i = OUTPUT_FORMAT_CYCLE.indexOf(cur)
       if (i < 0) i = 0
-      const next = OUTPUT_FORMAT_CYCLE[(i + 1) % OUTPUT_FORMAT_CYCLE.length]
-      this.selectOutputFormat(next)
+      const next = OUTPUT_FORMAT_CYCLE[(i + 1) % OUTPUT_FORMAT_CYCLE.length]!
+      this.selectOutputFormat(next, true)
     })
     body.appendChild(sec1)
 
@@ -429,7 +657,7 @@ export class Toolbar {
         </div>
         <button type="button" class="settings-value-toggle settings-locale-cycle" aria-label="${this.escAttr(t.languageCycleAria)}">
           <span class="value-name">${this.escHtml(uiLocaleLabel(loc))}</span>
-          <span class="settings-more-hit" aria-hidden="true">${MORE_VERT_ICON}</span>
+          ${this.buildSettingsCycleDotsHtml(UI_LOCALE_CYCLE.length, Math.max(0, UI_LOCALE_CYCLE.indexOf(loc)))}
         </button>
       </div>
     `
@@ -441,6 +669,7 @@ export class Toolbar {
       if (i < 0) i = 0
       const next = UI_LOCALE_CYCLE[(i + 1) % UI_LOCALE_CYCLE.length]!
       this.settings?.setUiLocale(next)
+      this.syncLocaleCycleUI(true)
     })
     body.appendChild(secLang)
 
@@ -472,7 +701,7 @@ export class Toolbar {
 
     body.appendChild(this.makeSettingsDivider())
 
-    // ── Marker visibility: two independent toggles (no help tooltips) ─
+    // ── Marker visibility: independent checkboxes (Figma 1-4) ─────
     const secModes = document.createElement('div')
     secModes.className = 'settings-section settings-modes-section'
     secModes.innerHTML = `
@@ -517,7 +746,7 @@ export class Toolbar {
     return d
   }
 
-  /** Sync marker visibility toggles with adapter (independent checkboxes). */
+  /** Sync marker visibility checkboxes with adapter (independent toggles). */
   syncMarkerDisplayModeUI(): void {
     if (!this.settingsPanel || !this.settings) return
     const getCur = this.settings.getMarkerShowCurrentPage
@@ -632,13 +861,71 @@ export class Toolbar {
       .replace(/>/g, '&gt;')
   }
 
-  private selectOutputFormat(fmt: OutputFormat): void {
+  /** Figma 10-17: vertical step dots (one highlighted among N). */
+  private buildSettingsCycleDotsHtml(total: number, activeIndex: number): string {
+    const active = Math.max(0, Math.min(activeIndex, total - 1))
+    const parts: string[] = []
+    for (let i = 0; i < total; i++) {
+      parts.push(`<span class="settings-cycle-dot${i === active ? ' is-on' : ''}"></span>`)
+    }
+    return `<span class="settings-cycle-dots" data-total="${total}" data-active="${active}" aria-hidden="true">${parts.join('')}</span>`
+  }
+
+  private syncOutputCycleUI(animate = false): void {
     if (!this.settingsPanel) return
-    this.settings?.setOutputFormat(fmt)
+    const fmt = this.settings?.getOutputFormat() ?? 'standard'
+    const idx = Math.max(0, OUTPUT_FORMAT_CYCLE.indexOf(fmt))
+    const btn = this.settingsPanel.querySelector('.settings-output-cycle')
+    if (!btn) return
     const loc = this.settings?.getUiLocale?.() ?? 'zh-CN'
     const t = getToolbarI18n(loc, this.keys)
-    const nameEl = this.settingsPanel.querySelector('.settings-output-cycle .value-name')
-    if (nameEl) nameEl.textContent = t.formatLabel[fmt]
+    const label = btn.querySelector('.value-name')
+    if (label) label.textContent = t.formatLabel[fmt]
+    this.applyCycleDots(btn, OUTPUT_FORMAT_CYCLE.length, idx, animate)
+  }
+
+  private syncLocaleCycleUI(animate = false): void {
+    if (!this.settingsPanel) return
+    const loc = this.settings?.getUiLocale?.() ?? 'zh-CN'
+    const idx = Math.max(0, UI_LOCALE_CYCLE.indexOf(loc))
+    const btn = this.settingsPanel.querySelector('.settings-locale-cycle')
+    if (!btn) return
+    const label = btn.querySelector('.value-name')
+    if (label) label.textContent = uiLocaleLabel(loc)
+    this.applyCycleDots(btn, UI_LOCALE_CYCLE.length, idx, animate)
+  }
+
+  private applyCycleDots(btn: Element, total: number, activeIndex: number, animate: boolean): void {
+    const active = Math.max(0, Math.min(activeIndex, total - 1))
+    let dots = btn.querySelector('.settings-cycle-dots') as HTMLElement | null
+    if (!dots) {
+      btn.insertAdjacentHTML('beforeend', this.buildSettingsCycleDotsHtml(total, active))
+      dots = btn.querySelector('.settings-cycle-dots') as HTMLElement
+    }
+    dots.dataset.total = String(total)
+    dots.dataset.active = String(active)
+    dots.querySelectorAll('.settings-cycle-dot').forEach((dot, i) => {
+      dot.classList.toggle('is-on', i === active)
+    })
+    if (animate) {
+      dots.classList.remove('is-switching')
+      void dots.offsetWidth
+      dots.classList.add('is-switching')
+      const label = btn.querySelector('.value-name')
+      if (label) {
+        label.classList.remove('is-switching')
+        void label.offsetWidth
+        label.classList.add('is-switching')
+      }
+      dots.addEventListener('animationend', () => dots!.classList.remove('is-switching'), { once: true })
+      label?.addEventListener('animationend', () => label.classList.remove('is-switching'), { once: true })
+    }
+  }
+
+  private selectOutputFormat(fmt: OutputFormat, animate = false): void {
+    if (!this.settingsPanel) return
+    this.settings?.setOutputFormat(fmt)
+    this.syncOutputCycleUI(animate)
   }
 
   private toggleSettings(): void {
@@ -646,10 +933,22 @@ export class Toolbar {
     else this.openSettings()
   }
 
+  private applySettingsPanelWidth(): void {
+    if (!this.settingsPanel) return
+    const w = `${SETTINGS_PANEL_WIDTH_PX}px`
+    Object.assign(this.settingsPanel.style, {
+      width: w,
+      minWidth: w,
+      maxWidth: w,
+      boxSizing: 'border-box',
+    })
+  }
+
   private openSettings(): void {
     if (!this.settingsPanel || !this.settingsBtn) return
     this.settingsOpen = true
     this.settingsBtn.classList.add('active')
+    this.applySettingsPanelWidth()
     this.settingsPanel.style.display = 'block'
     this.positionSettingsPanel()
     document.addEventListener('mousedown', this.boundOutsideClick, true)
@@ -683,7 +982,7 @@ export class Toolbar {
     const anchor = this.settingsBtn.getBoundingClientRect()
     const vw = window.innerWidth
     const vh = window.innerHeight
-    const pad = 8
+    const pad = Toolbar.EDGE_INSET_PX
     const gap = 8
 
     let left: number
@@ -694,7 +993,10 @@ export class Toolbar {
     } else {
       left = Math.max(pad, Math.min(tb.left, vw - w - pad))
     }
+
     let top = anchor.top + anchor.height / 2 - h / 2
+    const spaceBelow = vh - pad - (top + h)
+    if (spaceBelow < 0) top = Math.min(tb.bottom - h, vh - pad - h)
     top = Math.max(pad, Math.min(top, vh - h - pad))
 
     Object.assign(this.settingsPanel.style, { left: `${left}px`, top: `${top}px` })
@@ -720,9 +1022,9 @@ export class Toolbar {
 
   /** Programmatically minimize without firing callback */
   minimize(): void {
-    this.minimized = true
-    this.toolbarEl.style.display = 'none'
-    this.fab.style.display = ''
+    if (this.minimized) return
+    this.applyMinimizedLayout(true)
+    this.closeSettings()
     this.updateFabBadge()
   }
 
@@ -762,9 +1064,30 @@ export class Toolbar {
   }
 
   destroy(): void {
+    if (this.activePointerId !== null) {
+      try {
+        this.host.releasePointerCapture(this.activePointerId)
+      } catch {
+        /* ignore */
+      }
+    }
+    this.dragPointer = null
+    this.dragMoved = false
+    this.activePointerId = null
     document.removeEventListener('mousedown', this.boundOutsideClick, true)
     this.settingsPanel?.querySelector('.panel-body')?.removeEventListener('mousedown', this.boundDismissHelpOnBodyMouseDown, true)
     this.dismissSettingsHelpPopovers()
+    this.host.removeEventListener('pointermove', this.onDragPointerMove)
+    window.removeEventListener('mouseup', this.boundEndDrag)
+    window.removeEventListener('blur', this.boundEndDrag)
+    window.removeEventListener('resize', this.boundLayoutSync)
+    document.removeEventListener('scroll', this.boundLayoutSync, { capture: true } as EventListenerOptions)
+    window.visualViewport?.removeEventListener('resize', this.boundLayoutSync)
+    window.visualViewport?.removeEventListener('scroll', this.boundLayoutSync)
+    if (this.layoutSyncRaf !== null) {
+      cancelAnimationFrame(this.layoutSyncRaf)
+      this.layoutSyncRaf = null
+    }
     this.host.remove()
     document.body.classList.remove('ik-annotating')
   }

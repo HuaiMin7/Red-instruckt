@@ -11,6 +11,8 @@ export interface InstrucktPluginOptions {
   theme?: 'light' | 'dark' | 'auto'
   /** Toolbar position. Default: 'bottom-right' */
   position?: 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left'
+  /** CSS selector for content column the toolbar follows on resize/zoom */
+  positionAnchor?: string
   /** Customize marker pin colors */
   colors?: { default?: string; screenshot?: string; dismissed?: string }
   /** Customize keyboard shortcuts */
@@ -130,6 +132,7 @@ export default function instruckt(options: InstrucktPluginOptions = {}): Plugin 
     if (options.adapters) cfg.adapters = options.adapters
     if (options.theme) cfg.theme = options.theme
     if (options.position) cfg.position = options.position
+    if (options.positionAnchor) cfg.positionAnchor = options.positionAnchor
     if (options.colors) cfg.colors = options.colors
     if (options.keys) cfg.keys = options.keys
     return cfg

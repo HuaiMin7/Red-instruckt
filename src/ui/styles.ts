@@ -4,6 +4,9 @@ body.ik-annotating,
 body.ik-annotating * { cursor: crosshair !important; }
 `
 
+/** Settings panel width — Figma node 1-4 */
+export const SETTINGS_PANEL_WIDTH_PX = 280
+
 /** Toolbar shadow DOM styles — fully isolated */
 export const TOOLBAR_CSS = /* css */ `
 :host {
@@ -18,7 +21,7 @@ export const TOOLBAR_CSS = /* css */ `
 :host-context([data-instruckt-theme="dark"]),
 @media (prefers-color-scheme: dark) {
   :host {
-    --ik-bg: #1c1c1e; --ik-bg2: #2c2c2e; --ik-border: #38383a;
+    --ik-bg: #1c1c1e; --ik-bg2: #2c2c2e; --ik-bg3: #353538; --ik-border: #38383a;
     --ik-text: #f4f4f5; --ik-muted: #a1a1aa;
     --ik-shadow: 0 8px 32px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.06);
   }
@@ -29,6 +32,7 @@ export const TOOLBAR_CSS = /* css */ `
   --ik-accent-h: var(--instruckt-accent-hover, #4f46e5);
   --ik-bg: #ffffff;
   --ik-bg2: #f4f4f5;
+  --ik-bg3: #eaeaec;
   --ik-border: #e4e4e7;
   --ik-text: #18181b;
   --ik-muted: #a1a1aa;
@@ -102,8 +106,8 @@ export const TOOLBAR_CSS = /* css */ `
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 .btn[data-tooltip]:hover::before { opacity: 1; }
-.btn.active { background: var(--ik-accent); color: #fff; }
-.btn.active:hover { background: var(--ik-accent-h); }
+.btn.active:not(.settings-btn) { background: var(--ik-accent); color: #fff; }
+.btn.active:not(.settings-btn):hover { background: var(--ik-accent-h); }
 
 .divider { width: 18px; height: 1px; background: var(--ik-border); margin: 3px 0; }
 
@@ -172,13 +176,16 @@ export const TOOLBAR_CSS = /* css */ `
   background: var(--ik-bg);
   color: var(--ik-muted);
   box-shadow: var(--ik-shadow);
-  cursor: pointer;
+  cursor: grab;
   padding: 0;
+  touch-action: none;
+  user-select: none;
   transition: color .15s ease, transform .15s ease;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  position: relative;
 }
 .fab:hover { color: var(--ik-accent); transform: scale(1.1); }
-.fab { position: relative; }
+.fab:active { cursor: grabbing; }
 
 .fab-badge {
   position: absolute;
@@ -196,8 +203,16 @@ export const TOOLBAR_CSS = /* css */ `
 
 /* Settings panel — Figma tokens (node 1:4) + dark fallbacks */
 .settings-btn { color: var(--ik-muted); }
-.settings-btn:hover { color: var(--ik-text); }
-.settings-btn.active { background: var(--ik-bg2); color: var(--ik-accent); }
+.settings-btn:hover { background: var(--ik-bg2); color: var(--ik-text); }
+/* Open settings: neutral gray fill — icon tint only, never theme-colored background */
+.btn.settings-btn.active {
+  background: var(--ik-bg2);
+  color: var(--ik-muted);
+}
+.btn.settings-btn.active:hover {
+  background: var(--ik-bg3);
+  color: var(--ik-text);
+}
 
 .settings-panel {
   --sp-brand: #ff2442;
@@ -209,7 +224,10 @@ export const TOOLBAR_CSS = /* css */ `
   --sp-checkbox-stroke: #0000001a;
   position: fixed;
   z-index: 2147483647;
-  width: 320px;
+  width: 280px;
+  min-width: 280px;
+  max-width: 280px;
+  box-sizing: border-box;
   overflow: visible;
   display: flex;
   flex-direction: column;
@@ -390,8 +408,8 @@ export const TOOLBAR_CSS = /* css */ `
   top: auto;
   bottom: calc(100% + 6px);
   z-index: 2;
-  width: min(300px, calc(100vw - 48px));
-  max-width: 300px;
+  width: min(248px, calc(100vw - 48px));
+  max-width: 100%;
   max-height: min(280px, 40vh);
   overflow-y: auto;
   padding: 10px 12px;
@@ -444,18 +462,36 @@ export const TOOLBAR_CSS = /* css */ `
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.settings-panel .settings-more-hit {
+/* Figma 10-17: vertical step dots beside cycle value (Output detail / Language) */
+.settings-panel .settings-cycle-dots {
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 3px;
   width: 24px;
   height: 24px;
-  margin-left: 0;
-  color: color-mix(in srgb, var(--ik-text) 45%, transparent);
   flex-shrink: 0;
+  margin-left: 0;
 }
-.settings-panel .settings-more-hit svg {
-  display: block;
+.settings-panel .settings-cycle-dot {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ik-text) 18%, transparent);
+  flex-shrink: 0;
+  transition: background 0.15s ease, transform 0.15s ease;
+}
+.settings-panel .settings-cycle-dot.is-on {
+  background: var(--ik-text);
+}
+.settings-panel .settings-value-toggle .value-name.is-switching,
+.settings-panel .settings-cycle-dots.is-switching .settings-cycle-dot.is-on {
+  animation: ik-settings-cycle-switch 0.2s ease;
+}
+@keyframes ik-settings-cycle-switch {
+  0% { opacity: 0.45; transform: scale(0.82); }
+  100% { opacity: 1; transform: scale(1); }
 }
 
 .settings-panel .settings-color-section {

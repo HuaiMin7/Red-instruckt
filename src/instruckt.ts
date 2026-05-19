@@ -126,7 +126,9 @@ export class Instruckt {
       onClearPage: () => this.clearPage(),
       onClearAll: () => this.clearEverything(),
       onMinimize: (min) => this.onMinimize(min),
-    }, this.config.keys, this.config.tools, this.makeSettingsAdapter())
+    }, this.config.keys, this.config.tools, this.makeSettingsAdapter(), {
+      positionAnchor: this.config.positionAnchor,
+    })
 
     this.highlight = new ElementHighlight()
     this.popup = new AnnotationPopup(() => this.uiLocale)
@@ -198,7 +200,9 @@ export class Instruckt {
     document.querySelectorAll('[data-instruckt]').forEach(el => el.remove())
 
     // Rebuild everything fresh
-    this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools, this.makeSettingsAdapter())
+    this.toolbar = new Toolbar(this.config.position, this.makeToolbarCallbacks(), this.config.keys, this.config.tools, this.makeSettingsAdapter(), {
+      positionAnchor: this.config.positionAnchor,
+    })
     if (wasMinimized) this.toolbar.minimize()
 
     this.markers = new AnnotationMarkers(
